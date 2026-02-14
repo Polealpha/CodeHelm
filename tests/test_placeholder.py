@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from caasys.engine import ContinuousEngine
 from caasys.models import Feature
+from caasys.storage import save_policy
 
 
 class EngineSmokeTests(unittest.TestCase):
@@ -83,6 +84,52 @@ class EngineSmokeTests(unittest.TestCase):
         self.assertFalse(report.success)
         self.assertFalse(engine.list_features()[0].passes)
         self.assertTrue(any("F-EMPTY" in blocker for blocker in status.blockers))
+
+    def test_zero_ask_policy_is_persisted(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Policy test")
+
+        policy = engine.get_policy()
+        self.assertTrue(policy.zero_ask)
+        self.assertTrue((root / "AGENT_POLICY.md").exists())
+
+    def test_duplicate_feature_ids_are_auto_resolved_in_zero_ask_mode(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Duplicate handling")
+
+        first = engine.add_feature(
+            Feature(
+                id="F-DUP",
+                category="smoke",
+                description="first",
+                implementation_commands=["echo first"],
+            )
+        )
+        second = engine.add_feature(
+            Feature(
+                id="F-DUP",
+                category="smoke",
+                description="second",
+                implementation_commands=["echo second"],
+            )
+        )
+        self.assertEqual(first.id, "F-DUP")
+        self.assertEqual(second.id, "F-DUP-1")
+
+    def test_quality_gate_detects_missing_required_context_file(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Gate failure")
+
+        policy = engine.get_policy()
+        policy.required_context_files = policy.required_context_files + ["MISSING_CONTEXT_FILE.md"]
+        save_policy(root, policy)
+
+        gate = engine.run_quality_gate(dry_run=True, run_smoke=False)
+        self.assertFalse(gate.ok)
+        self.assertTrue(any("MISSING_CONTEXT_FILE.md" in failure for failure in gate.failures))
 
 
 if __name__ == "__main__":
