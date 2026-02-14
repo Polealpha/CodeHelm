@@ -54,5 +54,26 @@
     "description": "Parallel team iteration coexists with role-based execution flow",
     "priority": 8,
     "passes": true
+  },
+  {
+    "id": "F-009",
+    "category": "loop",
+    "description": "Project can run continuous iteration loop with explicit stop decisions",
+    "priority": 9,
+    "passes": true
+  },
+  {
+    "id": "F-010",
+    "category": "browser",
+    "description": "System can launch browser validation and verify web flows automatically",
+    "priority": 10,
+    "passes": true
+  },
+  {
+    "id": "F-011",
+    "category": "research",
+    "description": "Paper-backed design mapping is documented for loop, stop, and browser validation",
+    "priority": 11,
+    "passes": true
   }
 ]
