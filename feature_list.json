@@ -47,5 +47,12 @@
     "description": "Quality gate prevents context rot before each iteration",
     "priority": 7,
     "passes": true
+  },
+  {
+    "id": "F-008",
+    "category": "parallel",
+    "description": "Parallel team iteration coexists with role-based execution flow",
+    "priority": 8,
+    "passes": true
   }
 ]

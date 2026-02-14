@@ -9,6 +9,7 @@ Use this checklist every iteration to avoid context corruption:
    - record blocker in `AGENT_STATUS.md`;
    - fix base state before new feature work.
 4. Work one feature at a time.
+   For `iterate-parallel`, only schedule features marked `parallel_safe=true` unless risk is explicitly accepted.
 5. Mark `passes=true` only after verification command succeeds.
 6. Update `AGENT_STATUS.md` and `progress.log` before ending iteration.
 7. Create a small commit.

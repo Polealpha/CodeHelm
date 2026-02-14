@@ -1,40 +1,36 @@
 # AGENT_STATUS
 
 ## Current Objective
-Build an MVP of a continuous autonomous engineering system based on the two provided papers.
+Add parallel-team execution that coexists with role-based agents, while preserving zero-ask and context hygiene.
 
 ## Done
-- Located and read `lunwen` (long-running harness patterns).
-- Extracted and reviewed `2508.03923v2.pdf` (CoAct-1 multi-agent design).
-- Initialized project scaffold with persistent artifacts (`AGENT_STATUS.md`, `feature_list.json`, `progress.log`).
-- Implemented core modules: `orchestrator`, `programmer agent`, `operator agent`, `iteration engine`.
-- Implemented CLI: `init`, `add-feature`, `status`, `features`, `iterate`, `serve`.
-- Implemented local HTTP service: `GET /health`, `GET /status`, `POST /iterate`.
-- Added smoke tests for successful iteration, failure path, and empty-feature guard.
-- Verified local deployment by hitting `/health` endpoint successfully.
-- Added shared `Zero-Ask` runtime policy with persistent artifacts (`AGENT_POLICY.md`, `.caasys/policy.json`).
-- Added anti-context-rot quality gate (`bootstrap` + `quality-gate`) and wired it into iteration preflight.
-- Added duplicate feature-id auto-resolution under zero-ask mode.
-- Expanded smoke tests to 6 cases, including policy persistence and quality-gate failure detection.
+- Added `parallel_safe` feature flag for safe parallel scheduling.
+- Added parallel-team policy fields (`enable_parallel_teams`, team count, max batch size, safety requirement).
+- Implemented `run_parallel_iteration` with thread-pool scheduling and per-team execution reports.
+- Kept role composition inside each team (`Orchestrator -> ProgrammerAgent -> OperatorAgent`).
+- Added CLI command `iterate-parallel` and `add-feature --parallel-safe`.
+- Added HTTP endpoint `POST /iterate-parallel`.
+- Added tests for parallel success and safety gate behavior.
+- Updated README/AGENT_POLICY documentation for coexistence model.
 
 ## In Progress
-- None.
+- None
 
 ## Blockers
-- `pip install -e .` in sandbox is constrained by external temp directory permissions (`C:\\Users\\jingk\\AppData\\Local\\Temp`).
-- Workaround used for validation: direct module execution with `PYTHONPATH=src` and runtime smoke tests.
+- `pip install -e .` remains constrained by temp-directory permissions in this sandbox environment.
 
 ## Next Steps
-- Optional: add richer auto-fix strategies for failed features.
-- Optional: add browser-automation operator adapter.
-- Optional: add external LLM adapters for fully autonomous code generation.
-- Optional: expose a richer policy editor command for per-agent overrides.
+- Optional: add git-worktree isolation mode per parallel team for high-conflict repositories.
+- Optional: add merge/conflict quality gates for true branch-level parallel development.
 
 ## Last Command Summary
-- `python -m unittest discover -s tests -p "test_*.py" -v` -> 6 tests passed.
-- `python -m caasys.cli --root . policy` -> confirms `zero_ask=true`.
-- `python -m caasys.cli --root . quality-gate --dry-run` -> all checks pass.
-- CLI help confirms new commands: `policy`, `bootstrap`, `quality-gate`.
+- `python -m unittest discover -s tests -p "test_*.py" -v` -> 8 tests passed.
+- `python -m caasys.cli --root . --help` -> includes `iterate-parallel`.
+- `python -m caasys.cli --root . policy` -> parallel policy fields present.
+- `python -m caasys.cli --root . iterate-parallel --teams 2 --max-features 2 --dry-run` -> command path validated.
 
 ## Last Test Summary
-- Unit smoke suite passed: 6/6 (`success`, `failure`, `empty feature`, `policy persist`, `duplicate id resolve`, `gate failure detect`).
+- Unit smoke suite passed: 8/8 (includes parallel success + parallel safety gate).
+
+## Iteration
+2

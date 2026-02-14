@@ -5,3 +5,4 @@ tests/.tmp/
 .venv/
 .local/
 git-data/
+.caasys/

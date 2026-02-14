@@ -4,6 +4,10 @@
 - zero_ask: `true`
 - auto_resolve_duplicate_feature_ids: `true`
 - retry_failed_commands_once: `true`
+- enable_parallel_teams: `true`
+- default_parallel_teams: `2`
+- max_parallel_features_per_iteration: `4`
+- require_parallel_safe_flag: `true`
 
 ## Quality Gate
 - run_smoke_before_iteration: `true` (auto-disabled when `tests/` is missing in target root)

@@ -17,6 +17,7 @@ Default runtime mode is `Zero-Ask`: agents do not pause for human questions and 
 - `ProgrammerAgent` (`src/caasys/agents.py`): executes implementation commands for the selected feature.
 - `OperatorAgent` (`src/caasys/agents.py`): executes verification commands and returns operational results.
 - `ContinuousEngine` (`src/caasys/engine.py`): coordinates one full iteration and updates durable memory artifacts.
+- `Parallel Team Runner` (`src/caasys/engine.py`): dispatches multiple pending features to concurrent teams while each team still uses role-based execution.
 - `Storage Layer` (`src/caasys/storage.py`): persists `AGENT_STATUS.md`, `feature_list.json`, `.caasys/state.json`, and `progress.log`.
 - `Interfaces`:
   - CLI (`src/caasys/cli.py`)
@@ -40,6 +41,7 @@ Minimum viable completion requires:
 - local initialization (`init`);
 - feature backlog management (`add-feature`, `features`);
 - one-click iteration execution (`iterate`);
+- optional parallel team execution (`iterate-parallel`);
 - persistent status/memory artifacts;
 - local API server with health/status/iterate endpoints;
 - smoke tests for pass/fail/guard flows.
@@ -54,6 +56,7 @@ Mitigations in this repo:
 
 - explicit blocker capture in `AGENT_STATUS.md`;
 - guard that rejects feature completion when both implementation and verification commands are missing;
+- guard that restricts parallel mode to `parallel_safe=true` features by default;
 - frequent small commits and append-only progress logs.
 
 ## Core Ideas
@@ -88,10 +91,17 @@ $env:PYTHONPATH='src'
 python -m caasys.cli --root . init --objective "Build my project autonomously"
 python -m caasys.cli --root . policy
 python -m caasys.cli --root . quality-gate --dry-run
-python -m caasys.cli --root . add-feature --id F-100 --description "Run first task" --impl "echo implement" --verify "echo verify"
+python -m caasys.cli --root . add-feature --id F-100 --description "Run first task" --parallel-safe --impl "echo implement" --verify "echo verify"
 python -m caasys.cli --root . iterate
+python -m caasys.cli --root . iterate-parallel --teams 2 --max-features 2
 python -m caasys.cli --root . status
 ```
+
+Parallel mode notes:
+
+- By default, only features marked with `parallel_safe=true` are scheduled in parallel.
+- Use `--force-unsafe` only when you accept potential conflicts.
+- Each parallel team still executes `Programmer -> Operator` flow for its assigned feature.
 
 ## Local Deployment
 
@@ -107,6 +117,7 @@ API endpoints:
 - `GET /policy`
 - `GET /quality-gate`
 - `POST /iterate`
+- `POST /iterate-parallel`
 
 ## Testing
 

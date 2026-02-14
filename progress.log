@@ -5,3 +5,7 @@
 2026-02-14: Zero-Ask policy added and persisted for all agent roles.
 2026-02-14: Added context hygiene quality gate and bootstrap scan in iteration preflight.
 2026-02-14: Expanded smoke tests to 6/6 including policy and gate checks.
+2026-02-14 03:30:34Z Iteration 1 parallel skipped: no pending features
+2026-02-14: Added parallel-team iteration mode that coexists with role-based execution.
+2026-02-14: Added CLI/API parallel entry points and safety gating via parallel_safe flag.
+2026-02-14: Expanded smoke tests to 8/8 including parallel execution paths.
