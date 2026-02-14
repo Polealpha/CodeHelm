@@ -1,1 +1,4 @@
 2026-02-14: Project initialization started. Papers analyzed and scaffold created.
+2026-02-14: Core engine implemented (orchestrator + programmer/operator agents + iteration loop).
+2026-02-14: CLI and local HTTP server implemented and smoke-validated.
+2026-02-14: Unit smoke tests passed (3/3). MVP criteria satisfied.

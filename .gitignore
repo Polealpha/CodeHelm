@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.tmp/
+tests/.tmp/
+.venv/
+.local/
+git-data/
