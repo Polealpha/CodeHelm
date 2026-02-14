@@ -14,16 +14,16 @@ Build an MVP of a continuous autonomous engineering system based on the two prov
 - Verified local deployment by hitting `/health` endpoint successfully.
 
 ## In Progress
-- Final documentation polishing and final commit packaging.
+- None.
 
 ## Blockers
 - `pip install -e .` in sandbox is constrained by external temp directory permissions (`C:\\Users\\jingk\\AppData\\Local\\Temp`).
 - Workaround used for validation: direct module execution with `PYTHONPATH=src` and runtime smoke tests.
 
 ## Next Steps
-- Commit current implementation and tests.
-- Optionally add richer auto-fix strategies for failed features.
-- Optionally add browser-automation operator adapter.
+- Optional: add richer auto-fix strategies for failed features.
+- Optional: add browser-automation operator adapter.
+- Optional: add external LLM adapters for fully autonomous code generation.
 
 ## Last Command Summary
 - `python -m unittest discover -s tests -p "test_*.py" -v` -> 3 tests passed.
@@ -31,6 +31,7 @@ Build an MVP of a continuous autonomous engineering system based on the two prov
 - `python -m caasys.cli --root tests\\.tmp\\cli-demo add-feature ... --impl "echo impl" --verify "echo verify"` -> feature added.
 - `python -m caasys.cli --root tests\\.tmp\\cli-demo iterate` -> feature completed with implement+verify command success.
 - In-process server check returned `{"ok": true}` from `http://127.0.0.1:8791/health`.
+- `git log --oneline --decorate -6` confirms incremental history (`feat`, `test`, `docs`, `chore`).
 
 ## Last Test Summary
 - Unit smoke suite passed: 3/3 (`success path`, `failure blocker path`, `empty feature guard`).
