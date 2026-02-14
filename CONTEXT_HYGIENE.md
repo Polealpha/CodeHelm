@@ -13,5 +13,6 @@ Use this checklist every iteration to avoid context corruption:
 5. Mark `passes=true` only after verification command succeeds.
 6. Update `AGENT_STATUS.md` and `progress.log` before ending iteration.
 7. Create a small commit.
+8. For full autonomous runs, use `run-project` and inspect `stop_reason` before accepting completion.
 
 No interactive questions are required in normal flow (`zero_ask=true`).

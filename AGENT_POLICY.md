@@ -9,6 +9,21 @@
 - max_parallel_features_per_iteration: `4`
 - require_parallel_safe_flag: `true`
 
+## Stop Criteria
+- max_iterations_per_run: `20`
+- max_no_progress_iterations: `3`
+- stop_when_all_features_pass: `true`
+- stop_on_quality_gate_failure: `true`
+- require_browser_validation_before_stop: `false`
+
+## Browser Validation
+- browser_validation_enabled: `false`
+- browser_validation_backend: `auto`
+- browser_validation_url: `None`
+- browser_validation_steps_file: `.caasys/browser_steps.json`
+- browser_validation_headless: `true`
+- browser_validation_open_system_browser: `false`
+
 ## Quality Gate
 - run_smoke_before_iteration: `true` (auto-disabled when `tests/` is missing in target root)
 - smoke_test_command: `python -m unittest discover -s tests -p "test_*.py" -v`

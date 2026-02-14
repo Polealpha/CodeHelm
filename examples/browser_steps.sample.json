@@ -1,0 +1,30 @@
+[
+  {
+    "action": "goto",
+    "url": "http://127.0.0.1:3000"
+  },
+  {
+    "action": "click",
+    "selector": "text=Login"
+  },
+  {
+    "action": "fill",
+    "selector": "input[name='email']",
+    "value": "demo@example.com"
+  },
+  {
+    "action": "fill",
+    "selector": "input[name='password']",
+    "value": "demo123"
+  },
+  {
+    "action": "press",
+    "selector": "input[name='password']",
+    "value": "Enter"
+  },
+  {
+    "action": "expect_text",
+    "selector": "body",
+    "value": "Dashboard"
+  }
+]
