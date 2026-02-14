@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import subprocess
 from pathlib import Path
 
 from .agents import OperatorAgent, ProgrammerAgent, ShellExecutor
-from .models import AgentPolicy, AgentStatus, CommandResult, Feature, HygieneReport, IterationReport
+from .models import (
+    AgentPolicy,
+    AgentStatus,
+    CommandResult,
+    Feature,
+    HygieneReport,
+    IterationReport,
+    ParallelIterationReport,
+    TeamExecutionResult,
+)
 from .orchestrator import Orchestrator
 from .storage import (
     append_progress,
@@ -38,6 +48,12 @@ class ContinuousEngine:
         self.programmer = programmer or ProgrammerAgent(retry_once=self.policy.retry_failed_commands_once)
         self.operator = operator or OperatorAgent(retry_once=self.policy.retry_failed_commands_once)
         self._executor = ShellExecutor()
+        self._sync_runtime_policy()
+
+    def _sync_runtime_policy(self) -> None:
+        self.orchestrator.policy = self.policy
+        self.programmer._retry_once = self.policy.retry_failed_commands_once
+        self.operator._retry_once = self.policy.retry_failed_commands_once
 
     def initialize(self, objective: str, zero_ask: bool | None = None) -> AgentStatus:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -49,9 +65,7 @@ class ContinuousEngine:
             policy.smoke_test_command = None
         save_policy(self.root, policy)
         self.policy = policy
-        self.orchestrator.policy = self.policy
-        self.programmer._retry_once = self.policy.retry_failed_commands_once
-        self.operator._retry_once = self.policy.retry_failed_commands_once
+        self._sync_runtime_policy()
 
         status = load_status(self.root)
         status.current_objective = objective.strip()
@@ -100,6 +114,7 @@ class ContinuousEngine:
 
     def get_policy(self) -> AgentPolicy:
         self.policy = load_policy(self.root)
+        self._sync_runtime_policy()
         return self.policy
 
     def bootstrap_session(self, dry_run: bool = False) -> tuple[list[str], list[CommandResult]]:
@@ -194,10 +209,57 @@ class ContinuousEngine:
 
         return HygieneReport(ok=not failures, checks=checks, failures=failures, command_results=command_results)
 
+    def _execute_feature(
+        self,
+        feature: Feature,
+        dry_run: bool = False,
+        team_id: str | None = None,
+    ) -> TeamExecutionResult:
+        phase_prefix = f"{team_id}:" if team_id else ""
+        if not feature.implementation_commands and not feature.verification_command:
+            return TeamExecutionResult(
+                team_id=team_id or "single",
+                feature_id=feature.id,
+                success=False,
+                message=f"{phase_prefix}feature has no implementation_commands and no verification_command",
+                command_results=[],
+            )
+
+        programmer = ProgrammerAgent(retry_once=self.policy.retry_failed_commands_once)
+        operator = OperatorAgent(retry_once=self.policy.retry_failed_commands_once)
+
+        implementation_results = programmer.implement(feature=feature, cwd=self.root, dry_run=dry_run)
+        implementation_ok = all(result.exit_code == 0 for result in implementation_results)
+
+        verification_results: list[CommandResult] = []
+        if implementation_ok:
+            verification_results = operator.verify(feature=feature, cwd=self.root, dry_run=dry_run)
+        verification_ok = all(result.exit_code == 0 for result in verification_results)
+
+        command_results = implementation_results + verification_results
+        success = implementation_ok and verification_ok
+        if success:
+            message = f"{phase_prefix}feature {feature.id} completed"
+        else:
+            failure = _find_first_failure(command_results)
+            failure_text = failure.to_summary() if failure else "feature execution failed with unknown reason."
+            hard_blocker = _detect_hard_blocker(failure_text, self.policy)
+            if hard_blocker:
+                failure_text = f"{failure_text} | hard_blocker={hard_blocker}"
+            message = f"{phase_prefix}{failure_text}"
+
+        return TeamExecutionResult(
+            team_id=team_id or "single",
+            feature_id=feature.id,
+            success=success,
+            message=message,
+            command_results=command_results,
+        )
+
     def run_iteration(self, commit: bool = False, dry_run: bool = False) -> IterationReport:
         status = load_status(self.root)
         self.policy = load_policy(self.root)
-        self.orchestrator.policy = self.policy
+        self._sync_runtime_policy()
         features = load_features(self.root)
         bootstrap_notes, bootstrap_command_results = self.bootstrap_session(dry_run=dry_run)
         gate = self.run_quality_gate(dry_run=dry_run)
@@ -272,22 +334,10 @@ class ContinuousEngine:
         ]
         status.in_progress = [f"Iteration {iteration_number}: {feature.id} {feature.description}"]
 
-        if not feature.implementation_commands and not feature.verification_command:
-            command_results = []
-            success = False
-            implementation_ok = False
-            verification_results = []
-        else:
-            implementation_results = self.programmer.implement(feature=feature, cwd=self.root, dry_run=dry_run)
-            implementation_ok = all(result.exit_code == 0 for result in implementation_results)
-
-            verification_results = []
-            if implementation_ok:
-                verification_results = self.operator.verify(feature=feature, cwd=self.root, dry_run=dry_run)
-            verification_ok = all(result.exit_code == 0 for result in verification_results)
-
-            command_results = implementation_results + verification_results
-            success = implementation_ok and verification_ok
+        execution = self._execute_feature(feature=feature, dry_run=dry_run)
+        command_results = execution.command_results
+        success = execution.success
+        verification_results = [item for item in command_results if item.phase.startswith("verify")]
 
         all_command_results = preflight_command_results + command_results
         if success:
@@ -300,14 +350,7 @@ class ContinuousEngine:
                 else "Quality gate passed; no verification command configured."
             )
         else:
-            if not feature.implementation_commands and not feature.verification_command:
-                failure_text = "Feature has no implementation_commands and no verification_command."
-            else:
-                failure = _find_first_failure(command_results)
-                failure_text = failure.to_summary() if failure else "Feature execution failed with unknown reason."
-                hard_blocker = _detect_hard_blocker(failure_text, self.policy)
-                if hard_blocker:
-                    failure_text = f"{failure_text} | hard_blocker={hard_blocker}"
+            failure_text = execution.message
             status.blockers.append(f"Iteration {iteration_number} {feature.id}: {failure_text}")
             result = f"Feature {feature.id} failed. Blocker recorded."
             test_summary = (
@@ -351,6 +394,217 @@ class ContinuousEngine:
             command_results=all_command_results,
         )
 
+    def run_parallel_iteration(
+        self,
+        team_count: int | None = None,
+        max_features: int | None = None,
+        commit: bool = False,
+        dry_run: bool = False,
+        force_unsafe: bool = False,
+    ) -> ParallelIterationReport:
+        status = load_status(self.root)
+        self.policy = load_policy(self.root)
+        self._sync_runtime_policy()
+        features = load_features(self.root)
+        bootstrap_notes, bootstrap_command_results = self.bootstrap_session(dry_run=dry_run)
+        gate = self.run_quality_gate(dry_run=dry_run)
+        preflight_command_results = bootstrap_command_results + gate.command_results
+
+        status.iteration += 1
+        iteration_number = status.iteration
+
+        if not self.policy.enable_parallel_teams:
+            gate_ok = False
+            status.blockers.append(f"Iteration {iteration_number} parallel: policy disabled parallel teams")
+            status.in_progress = []
+            status.next_steps = ["Enable parallel mode in policy or use `caasys iterate`."]
+            status.last_command_summary = [item.to_summary() for item in preflight_command_results]
+            status.last_test_summary = "Parallel iteration blocked by policy."
+            save_status(self.root, status)
+            append_progress(self.root, f"Iteration {iteration_number} parallel blocked: policy disabled")
+            return ParallelIterationReport(
+                iteration_number=iteration_number,
+                team_count=0,
+                selected_feature_ids=[],
+                success=False,
+                result="Parallel mode disabled by policy.",
+                next_step=status.next_steps[0],
+                quality_gate_ok=gate_ok,
+                bootstrap_notes=bootstrap_notes,
+                team_results=[],
+                command_results=preflight_command_results,
+            )
+
+        if not gate.ok:
+            status.in_progress = []
+            for failure in gate.failures:
+                status.blockers.append(f"Iteration {iteration_number} preflight: {failure}")
+            status.next_steps = ["Fix preflight blockers and rerun `caasys iterate-parallel`."]
+            status.last_command_summary = [item.to_summary() for item in preflight_command_results] or [
+                "Preflight failed before running parallel teams."
+            ]
+            status.last_test_summary = "Quality gate failed before parallel execution."
+            save_status(self.root, status)
+            append_progress(
+                self.root,
+                f"Iteration {iteration_number} parallel blocked by quality gate: {'; '.join(gate.failures)}",
+            )
+            return ParallelIterationReport(
+                iteration_number=iteration_number,
+                team_count=0,
+                selected_feature_ids=[],
+                success=False,
+                result="Parallel iteration stopped by quality gate.",
+                next_step=status.next_steps[0],
+                quality_gate_ok=False,
+                bootstrap_notes=bootstrap_notes,
+                team_results=[],
+                command_results=preflight_command_results,
+            )
+
+        resolved_team_count = max(1, team_count or self.policy.default_parallel_teams)
+        resolved_max_features = max_features or self.policy.max_parallel_features_per_iteration
+        resolved_max_features = max(1, resolved_max_features)
+
+        candidates = self.orchestrator.pick_next_features(features, resolved_max_features)
+        if not candidates:
+            status.in_progress = []
+            status.next_steps = ["No pending features. Add new features to continue."]
+            status.last_command_summary = [item.to_summary() for item in preflight_command_results] or [
+                "No parallel work executed: all features already pass."
+            ]
+            status.last_test_summary = "Quality gate passed. No pending verification."
+            save_status(self.root, status)
+            append_progress(self.root, f"Iteration {iteration_number} parallel skipped: no pending features")
+            return ParallelIterationReport(
+                iteration_number=iteration_number,
+                team_count=resolved_team_count,
+                selected_feature_ids=[],
+                success=True,
+                result="All features already pass.",
+                next_step="Add new features if more work is needed.",
+                quality_gate_ok=True,
+                bootstrap_notes=bootstrap_notes,
+                team_results=[],
+                command_results=preflight_command_results,
+            )
+
+        selected_features: list[Feature] = []
+        skipped_unsafe: list[str] = []
+        for feature in candidates:
+            if self.policy.require_parallel_safe_flag and not force_unsafe and not feature.parallel_safe:
+                skipped_unsafe.append(feature.id)
+                continue
+            selected_features.append(feature)
+
+        if not selected_features:
+            status.in_progress = []
+            status.blockers.append(
+                f"Iteration {iteration_number} parallel: no selected features are parallel_safe "
+                f"(candidates={','.join(item.id for item in candidates)})"
+            )
+            status.next_steps = [
+                "Mark target features with parallel_safe=true or use --force-unsafe / single iterate mode."
+            ]
+            status.last_command_summary = [item.to_summary() for item in preflight_command_results]
+            status.last_test_summary = "Parallel iteration blocked by safety policy."
+            save_status(self.root, status)
+            append_progress(self.root, f"Iteration {iteration_number} parallel blocked: no parallel_safe features")
+            return ParallelIterationReport(
+                iteration_number=iteration_number,
+                team_count=resolved_team_count,
+                selected_feature_ids=[],
+                success=False,
+                result="No parallel-safe features available for parallel execution.",
+                next_step=status.next_steps[0],
+                quality_gate_ok=True,
+                bootstrap_notes=bootstrap_notes,
+                team_results=[],
+                command_results=preflight_command_results,
+            )
+
+        status.in_progress = [
+            f"Iteration {iteration_number}: parallel teams running {len(selected_features)} features "
+            f"with {resolved_team_count} teams"
+        ]
+        team_results: list[TeamExecutionResult] = []
+        feature_by_id = {feature.id: feature for feature in selected_features}
+
+        with ThreadPoolExecutor(max_workers=resolved_team_count) as pool:
+            futures = []
+            for index, feature in enumerate(selected_features):
+                team_id = f"team-{(index % resolved_team_count) + 1}"
+                futures.append(pool.submit(self._execute_feature, feature, dry_run, team_id))
+
+            for future in as_completed(futures):
+                team_results.append(future.result())
+
+        # deterministic order for reporting and status updates
+        team_results.sort(key=lambda item: (item.team_id, item.feature_id))
+
+        for item in team_results:
+            if item.success:
+                feature_by_id[item.feature_id].passes = True
+                status.done.append(f"Iteration {iteration_number}: {item.team_id} completed {item.feature_id}")
+            else:
+                status.blockers.append(f"Iteration {iteration_number} {item.team_id} {item.feature_id}: {item.message}")
+
+        if skipped_unsafe:
+            status.blockers.append(
+                f"Iteration {iteration_number} parallel skipped non-parallel-safe features: {', '.join(skipped_unsafe)}"
+            )
+
+        all_command_results = preflight_command_results + [
+            command for team in team_results for command in team.command_results
+        ]
+        status.in_progress = []
+        status.last_command_summary = [item.to_summary() for item in all_command_results] or [
+            "No commands were configured for selected parallel features."
+        ]
+        success = all(item.success for item in team_results) and not skipped_unsafe
+        if success:
+            status.last_test_summary = "Quality gate and parallel team verification passed."
+        else:
+            status.last_test_summary = "Quality gate passed; one or more parallel team executions failed or were skipped."
+
+        next_feature = self.orchestrator.pick_next_feature(features)
+        if next_feature:
+            status.next_steps = [f"Next pending feature: {next_feature.id} - {next_feature.description}"]
+        else:
+            status.next_steps = ["All listed features now pass."]
+
+        save_features(self.root, features)
+        save_status(self.root, status)
+        append_progress(
+            self.root,
+            f"Iteration {iteration_number} parallel {'passed' if success else 'failed'} "
+            f"features={','.join(item.feature_id for item in team_results)}",
+        )
+
+        if commit:
+            self._attempt_git_commit_parallel(
+                feature_ids=[item.feature_id for item in team_results],
+                success=success,
+                iteration_number=iteration_number,
+            )
+
+        return ParallelIterationReport(
+            iteration_number=iteration_number,
+            team_count=resolved_team_count,
+            selected_feature_ids=[item.feature_id for item in team_results],
+            success=success,
+            result=(
+                "Parallel iteration completed successfully."
+                if success
+                else "Parallel iteration completed with failures or safety skips."
+            ),
+            next_step=status.next_steps[0],
+            quality_gate_ok=True,
+            bootstrap_notes=bootstrap_notes,
+            team_results=team_results,
+            command_results=all_command_results,
+        )
+
     def _attempt_git_commit(self, feature: Feature, success: bool, iteration_number: int) -> None:
         message_prefix = "feat" if success else "fix"
         message = f"{message_prefix}: iteration {iteration_number} processed {feature.id}"
@@ -369,6 +623,32 @@ class ContinuousEngine:
             )
             if completed.returncode != 0:
                 # Commit errors should not crash the main loop; record them in progress.
+                append_progress(
+                    self.root,
+                    f"Git command failed: {' '.join(command)} :: {completed.stderr.strip() or completed.stdout.strip()}",
+                )
+                break
+
+    def _attempt_git_commit_parallel(self, feature_ids: list[str], success: bool, iteration_number: int) -> None:
+        message_prefix = "feat" if success else "fix"
+        feature_part = ",".join(feature_ids[:5])
+        if len(feature_ids) > 5:
+            feature_part += ",..."
+        message = f"{message_prefix}: iteration {iteration_number} parallel processed [{feature_part}]"
+        commands = [
+            ["git", "add", "AGENT_STATUS.md", "feature_list.json", "progress.log"],
+            ["git", "commit", "-m", message],
+        ]
+        for command in commands:
+            completed = subprocess.run(
+                command,
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if completed.returncode != 0:
                 append_progress(
                     self.root,
                     f"Git command failed: {' '.join(command)} :: {completed.stderr.strip() or completed.stdout.strip()}",

@@ -18,6 +18,11 @@ class Orchestrator:
         pending.sort(key=lambda feature: (feature.priority, feature.id))
         return pending[0]
 
+    def pick_next_features(self, features: list[Feature], count: int) -> list[Feature]:
+        pending = [feature for feature in features if not feature.passes]
+        pending.sort(key=lambda feature: (feature.priority, feature.id))
+        return pending[:count]
+
     def build_plan(self, feature: Feature) -> list[str]:
         plan = [
             f"PLAN: choose feature {feature.id} ({feature.description})",

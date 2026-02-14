@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument("--category", default="functional")
     add_parser.add_argument("--description", required=True)
     add_parser.add_argument("--priority", type=int, default=100)
+    add_parser.add_argument(
+        "--parallel-safe",
+        action="store_true",
+        help="Mark this feature safe to execute in parallel team mode.",
+    )
     add_parser.add_argument("--impl", action="append", default=[], help="Implementation command (repeatable)")
     add_parser.add_argument("--verify", default=None, help="Verification command")
 
@@ -48,6 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
     iterate_parser = subparsers.add_parser("iterate", help="Run one iteration")
     iterate_parser.add_argument("--commit", action="store_true", help="Attempt git commit after iteration")
     iterate_parser.add_argument("--dry-run", action="store_true", help="Skip actual command execution")
+
+    iterate_parallel_parser = subparsers.add_parser("iterate-parallel", help="Run one parallel-team iteration")
+    iterate_parallel_parser.add_argument("--teams", type=int, default=None, help="Parallel team count")
+    iterate_parallel_parser.add_argument(
+        "--max-features",
+        type=int,
+        default=None,
+        help="Max pending features to schedule in this round",
+    )
+    iterate_parallel_parser.add_argument("--force-unsafe", action="store_true")
+    iterate_parallel_parser.add_argument("--commit", action="store_true", help="Attempt git commit after iteration")
+    iterate_parallel_parser.add_argument("--dry-run", action="store_true", help="Skip actual command execution")
 
     serve_parser = subparsers.add_parser("serve", help="Run local HTTP control server")
     serve_parser.add_argument("--host", default="127.0.0.1")
@@ -73,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             category=args.category,
             description=args.description,
             priority=args.priority,
+            parallel_safe=args.parallel_safe,
             implementation_commands=args.impl,
             verification_command=args.verify,
         )
@@ -116,6 +134,17 @@ def main(argv: list[str] | None = None) -> int:
         report = engine.run_iteration(commit=args.commit, dry_run=args.dry_run)
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))
         return 0
+
+    if args.command == "iterate-parallel":
+        report = engine.run_parallel_iteration(
+            team_count=args.teams,
+            max_features=args.max_features,
+            commit=args.commit,
+            dry_run=args.dry_run,
+            force_unsafe=args.force_unsafe,
+        )
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))
+        return 0 if report.success else 2
 
     if args.command == "serve":
         from .server import run_server

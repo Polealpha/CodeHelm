@@ -15,6 +15,7 @@ class Feature:
     description: str
     priority: int = 100
     passes: bool = False
+    parallel_safe: bool = False
     implementation_commands: list[str] = field(default_factory=list)
     verification_command: str | None = None
 
@@ -26,6 +27,7 @@ class Feature:
             description=str(payload["description"]),
             priority=int(payload.get("priority", 100)),
             passes=bool(payload.get("passes", False)),
+            parallel_safe=bool(payload.get("parallel_safe", False)),
             implementation_commands=list(payload.get("implementation_commands", [])),
             verification_command=payload.get("verification_command"),
         )
@@ -43,6 +45,10 @@ class AgentPolicy:
     retry_failed_commands_once: bool = True
     run_smoke_before_iteration: bool = True
     smoke_test_command: str | None = 'python -m unittest discover -s tests -p "test_*.py" -v'
+    enable_parallel_teams: bool = True
+    default_parallel_teams: int = 2
+    max_parallel_features_per_iteration: int = 4
+    require_parallel_safe_flag: bool = True
     hard_blocker_patterns: list[str] = field(
         default_factory=lambda: [
             "permission denied",
@@ -71,6 +77,10 @@ class AgentPolicy:
             retry_failed_commands_once=bool(payload.get("retry_failed_commands_once", True)),
             run_smoke_before_iteration=bool(payload.get("run_smoke_before_iteration", True)),
             smoke_test_command=payload.get("smoke_test_command"),
+            enable_parallel_teams=bool(payload.get("enable_parallel_teams", True)),
+            default_parallel_teams=int(payload.get("default_parallel_teams", 2)),
+            max_parallel_features_per_iteration=int(payload.get("max_parallel_features_per_iteration", 4)),
+            require_parallel_safe_flag=bool(payload.get("require_parallel_safe_flag", True)),
             hard_blocker_patterns=list(payload.get("hard_blocker_patterns", []))
             or [
                 "permission denied",
@@ -96,6 +106,10 @@ class AgentPolicy:
             f"- zero_ask: `{str(self.zero_ask).lower()}`",
             f"- auto_resolve_duplicate_feature_ids: `{str(self.auto_resolve_duplicate_feature_ids).lower()}`",
             f"- retry_failed_commands_once: `{str(self.retry_failed_commands_once).lower()}`",
+            f"- enable_parallel_teams: `{str(self.enable_parallel_teams).lower()}`",
+            f"- default_parallel_teams: `{self.default_parallel_teams}`",
+            f"- max_parallel_features_per_iteration: `{self.max_parallel_features_per_iteration}`",
+            f"- require_parallel_safe_flag: `{str(self.require_parallel_safe_flag).lower()}`",
             "",
             "## Quality Gate",
             f"- run_smoke_before_iteration: `{str(self.run_smoke_before_iteration).lower()}`",
@@ -231,6 +245,44 @@ class IterationReport:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["command_results"] = [item.to_dict() for item in self.command_results]
+        return payload
+
+
+@dataclass
+class TeamExecutionResult:
+    """Execution result for one team handling one feature."""
+
+    team_id: str
+    feature_id: str
+    success: bool
+    message: str
+    command_results: list[CommandResult] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["command_results"] = [item.to_dict() for item in self.command_results]
+        return payload
+
+
+@dataclass
+class ParallelIterationReport:
+    """Structured output of one parallel team iteration."""
+
+    iteration_number: int
+    team_count: int
+    selected_feature_ids: list[str]
+    success: bool
+    result: str
+    next_step: str
+    quality_gate_ok: bool
+    bootstrap_notes: list[str] = field(default_factory=list)
+    team_results: list[TeamExecutionResult] = field(default_factory=list)
+    command_results: list[CommandResult] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["team_results"] = [item.to_dict() for item in self.team_results]
         payload["command_results"] = [item.to_dict() for item in self.command_results]
         return payload
 

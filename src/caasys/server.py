@@ -43,7 +43,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path != "/iterate":
+        if path not in {"/iterate", "/iterate-parallel"}:
             self._send_json(404, {"error": "not found"})
             return
 
@@ -54,11 +54,22 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid json"})
             return
 
-        report = self.engine.run_iteration(
+        if path == "/iterate":
+            report = self.engine.run_iteration(
+                commit=bool(payload.get("commit", False)),
+                dry_run=bool(payload.get("dry_run", False)),
+            )
+            self._send_json(200, report.to_dict())
+            return
+
+        report = self.engine.run_parallel_iteration(
+            team_count=payload.get("teams"),
+            max_features=payload.get("max_features"),
+            force_unsafe=bool(payload.get("force_unsafe", False)),
             commit=bool(payload.get("commit", False)),
             dry_run=bool(payload.get("dry_run", False)),
         )
-        self._send_json(200, report.to_dict())
+        self._send_json(200 if report.success else 409, report.to_dict())
 
     def log_message(self, fmt: str, *args) -> None:  # noqa: A003
         # Keep CLI output concise for local control use.
