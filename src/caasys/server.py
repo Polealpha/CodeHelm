@@ -30,6 +30,15 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send_json(200, payload)
             return
 
+        if path == "/policy":
+            self._send_json(200, self.engine.get_policy().to_dict())
+            return
+
+        if path == "/quality-gate":
+            report = self.engine.run_quality_gate(dry_run=False, run_smoke=True)
+            self._send_json(200 if report.ok else 409, report.to_dict())
+            return
+
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802

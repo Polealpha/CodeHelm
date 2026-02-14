@@ -18,6 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="Initialize state artifacts")
     init_parser.add_argument("--objective", required=True, help="Current project objective")
+    init_parser.add_argument(
+        "--allow-questions",
+        action="store_true",
+        help="Disable zero-ask mode (default keeps zero-ask enabled).",
+    )
 
     add_parser = subparsers.add_parser("add-feature", help="Add one feature to feature_list.json")
     add_parser.add_argument("--id", required=True, dest="feature_id")
@@ -29,6 +34,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("status", help="Print AGENT_STATUS.md")
     subparsers.add_parser("features", help="Print feature list JSON")
+    subparsers.add_parser("policy", help="Print active agent policy")
+    subparsers.add_parser("bootstrap", help="Run bootstrap context scan")
+
+    gate_parser = subparsers.add_parser("quality-gate", help="Run anti-context-rot checks")
+    gate_parser.add_argument("--dry-run", action="store_true", help="Skip actual smoke command execution")
+    gate_parser.add_argument(
+        "--no-smoke",
+        action="store_true",
+        help="Do not run smoke command in quality gate for this invocation",
+    )
 
     iterate_parser = subparsers.add_parser("iterate", help="Run one iteration")
     iterate_parser.add_argument("--commit", action="store_true", help="Attempt git commit after iteration")
@@ -48,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     engine = ContinuousEngine(root=root)
 
     if args.command == "init":
-        status = engine.initialize(objective=args.objective)
+        status = engine.initialize(objective=args.objective, zero_ask=not args.allow_questions)
         print(f"Initialized objective: {status.current_objective}")
         return 0
 
@@ -77,6 +92,25 @@ def main(argv: list[str] | None = None) -> int:
         features = [item.to_dict() for item in engine.list_features()]
         print(json.dumps(features, indent=2, ensure_ascii=True))
         return 0
+
+    if args.command == "policy":
+        policy = engine.get_policy()
+        print(json.dumps(policy.to_dict(), indent=2, ensure_ascii=True))
+        return 0
+
+    if args.command == "bootstrap":
+        notes, command_results = engine.bootstrap_session()
+        payload = {
+            "notes": notes,
+            "command_results": [item.to_dict() for item in command_results],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 0
+
+    if args.command == "quality-gate":
+        gate = engine.run_quality_gate(dry_run=args.dry_run, run_smoke=not args.no_smoke)
+        print(json.dumps(gate.to_dict(), indent=2, ensure_ascii=True))
+        return 0 if gate.ok else 2
 
     if args.command == "iterate":
         report = engine.run_iteration(commit=args.commit, dry_run=args.dry_run)

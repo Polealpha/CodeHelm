@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from .models import Feature
+from .models import AgentPolicy, Feature
 
 
 class Orchestrator:
     """Coordinates feature selection and role delegation."""
+
+    def __init__(self, policy: AgentPolicy | None = None) -> None:
+        self.policy = policy or AgentPolicy()
 
     def pick_next_feature(self, features: list[Feature]) -> Feature | None:
         pending = [feature for feature in features if not feature.passes]
@@ -24,4 +27,6 @@ class Orchestrator:
             "FIX: capture blockers when failures occur",
             "NEXT: queue next pending feature by priority",
         ]
+        if self.policy.zero_ask:
+            plan.append("POLICY: zero-ask enabled, use fallback chain instead of interactive questions")
         return plan

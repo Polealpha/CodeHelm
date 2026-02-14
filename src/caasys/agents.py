@@ -38,8 +38,9 @@ class ShellExecutor:
 class ProgrammerAgent:
     """Executes implementation commands for one feature."""
 
-    def __init__(self, executor: ShellExecutor | None = None) -> None:
+    def __init__(self, executor: ShellExecutor | None = None, retry_once: bool = True) -> None:
         self._executor = executor or ShellExecutor()
+        self._retry_once = retry_once
 
     def implement(self, feature: Feature, cwd: Path, dry_run: bool = False) -> list[CommandResult]:
         results: list[CommandResult] = []
@@ -59,6 +60,12 @@ class ProgrammerAgent:
 
             result = self._executor.run(command=command, cwd=cwd, phase="implement")
             results.append(result)
+            if result.exit_code != 0 and self._retry_once:
+                retry_result = self._executor.run(command=command, cwd=cwd, phase="implement-retry")
+                results.append(retry_result)
+                if retry_result.exit_code != 0:
+                    break
+                continue
             if result.exit_code != 0:
                 break
         return results
@@ -67,8 +74,9 @@ class ProgrammerAgent:
 class OperatorAgent:
     """Runs operational verification checks after implementation."""
 
-    def __init__(self, executor: ShellExecutor | None = None) -> None:
+    def __init__(self, executor: ShellExecutor | None = None, retry_once: bool = True) -> None:
         self._executor = executor or ShellExecutor()
+        self._retry_once = retry_once
 
     def verify(self, feature: Feature, cwd: Path, dry_run: bool = False) -> list[CommandResult]:
         if not feature.verification_command:
@@ -86,4 +94,9 @@ class OperatorAgent:
                 )
             ]
 
-        return [self._executor.run(command=feature.verification_command, cwd=cwd, phase="verify")]
+        result = self._executor.run(command=feature.verification_command, cwd=cwd, phase="verify")
+        if result.exit_code == 0 or not self._retry_once:
+            return [result]
+
+        retry_result = self._executor.run(command=feature.verification_command, cwd=cwd, phase="verify-retry")
+        return [result, retry_result]

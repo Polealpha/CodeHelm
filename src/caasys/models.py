@@ -35,6 +35,86 @@ class Feature:
 
 
 @dataclass
+class AgentPolicy:
+    """Shared runtime policy applied to all local agents."""
+
+    zero_ask: bool = True
+    auto_resolve_duplicate_feature_ids: bool = True
+    retry_failed_commands_once: bool = True
+    run_smoke_before_iteration: bool = True
+    smoke_test_command: str | None = 'python -m unittest discover -s tests -p "test_*.py" -v'
+    hard_blocker_patterns: list[str] = field(
+        default_factory=lambda: [
+            "permission denied",
+            "access is denied",
+            "api key",
+            "credential",
+            "network is unreachable",
+        ]
+    )
+    fallback_chain: list[str] = field(
+        default_factory=lambda: [
+            "retry_once",
+            "record_blocker",
+            "continue_to_next_feature",
+        ]
+    )
+    required_context_files: list[str] = field(
+        default_factory=lambda: ["AGENT_STATUS.md", "feature_list.json", "progress.log"]
+    )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AgentPolicy":
+        return cls(
+            zero_ask=bool(payload.get("zero_ask", True)),
+            auto_resolve_duplicate_feature_ids=bool(payload.get("auto_resolve_duplicate_feature_ids", True)),
+            retry_failed_commands_once=bool(payload.get("retry_failed_commands_once", True)),
+            run_smoke_before_iteration=bool(payload.get("run_smoke_before_iteration", True)),
+            smoke_test_command=payload.get("smoke_test_command"),
+            hard_blocker_patterns=list(payload.get("hard_blocker_patterns", []))
+            or [
+                "permission denied",
+                "access is denied",
+                "api key",
+                "credential",
+                "network is unreachable",
+            ],
+            fallback_chain=list(payload.get("fallback_chain", []))
+            or ["retry_once", "record_blocker", "continue_to_next_feature"],
+            required_context_files=list(payload.get("required_context_files", []))
+            or ["AGENT_STATUS.md", "feature_list.json", "progress.log"],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_markdown(self) -> str:
+        rows = [
+            "# AGENT_POLICY",
+            "",
+            "## Mode",
+            f"- zero_ask: `{str(self.zero_ask).lower()}`",
+            f"- auto_resolve_duplicate_feature_ids: `{str(self.auto_resolve_duplicate_feature_ids).lower()}`",
+            f"- retry_failed_commands_once: `{str(self.retry_failed_commands_once).lower()}`",
+            "",
+            "## Quality Gate",
+            f"- run_smoke_before_iteration: `{str(self.run_smoke_before_iteration).lower()}`",
+            f"- smoke_test_command: `{self.smoke_test_command or 'None'}`",
+            "",
+            "## Hard Blocker Patterns",
+            *_render_list(self.hard_blocker_patterns),
+            "",
+            "## Fallback Chain",
+            *_render_list(self.fallback_chain),
+            "",
+            "## Required Context Files",
+            *_render_list(self.required_context_files),
+            "",
+        ]
+        return "\n".join(rows)
+
+
+@dataclass
 class CommandResult:
     """Execution result from one shell command."""
 
@@ -120,6 +200,21 @@ class AgentStatus:
 
 
 @dataclass
+class HygieneReport:
+    """Audit result used to detect context drift/corruption before iteration."""
+
+    ok: bool
+    checks: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+    command_results: list[CommandResult] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["command_results"] = [item.to_dict() for item in self.command_results]
+        return payload
+
+
+@dataclass
 class IterationReport:
     """Structured output of one PLAN->IMPLEMENT->RUN->OBSERVE cycle."""
 
@@ -130,6 +225,8 @@ class IterationReport:
     success: bool
     result: str
     next_step: str
+    quality_gate_ok: bool | None = None
+    bootstrap_notes: list[str] = field(default_factory=list)
     command_results: list[CommandResult] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
