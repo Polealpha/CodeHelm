@@ -1,0 +1,37 @@
+[
+  {
+    "id": "F-001",
+    "category": "bootstrap",
+    "description": "Project scaffold, status file, and packaging metadata exist",
+    "priority": 1,
+    "passes": true
+  },
+  {
+    "id": "F-002",
+    "category": "core",
+    "description": "Orchestrator and dual-agent execution loop are implemented",
+    "priority": 2,
+    "passes": false
+  },
+  {
+    "id": "F-003",
+    "category": "interface",
+    "description": "CLI supports init, status, iterate, and add-feature flows",
+    "priority": 3,
+    "passes": false
+  },
+  {
+    "id": "F-004",
+    "category": "deploy",
+    "description": "Local HTTP service exposes health, status, and iterate APIs",
+    "priority": 4,
+    "passes": false
+  },
+  {
+    "id": "F-005",
+    "category": "quality",
+    "description": "Smoke tests cover initialization and one full iteration",
+    "priority": 5,
+    "passes": false
+  }
+]
