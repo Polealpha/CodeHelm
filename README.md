@@ -9,6 +9,48 @@ The system follows a strict cycle:
 
 `PLAN -> IMPLEMENT -> RUN -> OBSERVE -> FIX -> COMMIT -> NEXT`
 
+## Architecture Sketch
+
+- `Orchestrator` (`src/caasys/orchestrator.py`): selects the highest-priority pending feature and generates a per-iteration plan.
+- `ProgrammerAgent` (`src/caasys/agents.py`): executes implementation commands for the selected feature.
+- `OperatorAgent` (`src/caasys/agents.py`): executes verification commands and returns operational results.
+- `ContinuousEngine` (`src/caasys/engine.py`): coordinates one full iteration and updates durable memory artifacts.
+- `Storage Layer` (`src/caasys/storage.py`): persists `AGENT_STATUS.md`, `feature_list.json`, `.caasys/state.json`, and `progress.log`.
+- `Interfaces`:
+  - CLI (`src/caasys/cli.py`)
+  - Local HTTP API (`src/caasys/server.py`)
+
+## Milestones
+
+1. Bootstrap durable artifacts and package layout.
+2. Implement orchestrator + dual-agent execution core.
+3. Expose CLI and local deployment API.
+4. Add smoke tests and verify iteration behavior.
+5. Finalize docs and reproducible startup workflow.
+
+## MVP Definition
+
+Minimum viable completion requires:
+
+- local initialization (`init`);
+- feature backlog management (`add-feature`, `features`);
+- one-click iteration execution (`iterate`);
+- persistent status/memory artifacts;
+- local API server with health/status/iterate endpoints;
+- smoke tests for pass/fail/guard flows.
+
+## Risks
+
+- Environment permissions can block git and pip temp directories.
+- Features without executable commands can be falsely marked as done.
+- Command-driven implementation is flexible but requires careful command curation.
+
+Mitigations in this repo:
+
+- explicit blocker capture in `AGENT_STATUS.md`;
+- guard that rejects feature completion when both implementation and verification commands are missing;
+- frequent small commits and append-only progress logs.
+
 ## Core Ideas
 
 - Initializer creates durable project memory and repeatable startup scripts.
@@ -37,18 +79,18 @@ The system follows a strict cycle:
 ## Quick Start
 
 ```bash
-python -m venv .venv
-. .venv/Scripts/activate
-pip install -e .
-caasys init --objective "Build my project autonomously"
-caasys status
-caasys iterate
+$env:PYTHONPATH='src'
+python -m caasys.cli --root . init --objective "Build my project autonomously"
+python -m caasys.cli --root . add-feature --id F-100 --description "Run first task" --impl "echo implement" --verify "echo verify"
+python -m caasys.cli --root . iterate
+python -m caasys.cli --root . status
 ```
 
 ## Local Deployment
 
 ```bash
-caasys serve --host 127.0.0.1 --port 8787
+$env:PYTHONPATH='src'
+python -m caasys.cli --root . serve --host 127.0.0.1 --port 8787
 ```
 
 API endpoints:
