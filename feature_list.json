@@ -33,5 +33,19 @@
     "description": "Smoke tests cover initialization and one full iteration",
     "priority": 5,
     "passes": true
+  },
+  {
+    "id": "F-006",
+    "category": "policy",
+    "description": "Zero-ask policy is persisted and applied to all agent roles",
+    "priority": 6,
+    "passes": true
+  },
+  {
+    "id": "F-007",
+    "category": "hygiene",
+    "description": "Quality gate prevents context rot before each iteration",
+    "priority": 7,
+    "passes": true
   }
 ]

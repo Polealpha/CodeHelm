@@ -2,3 +2,6 @@
 2026-02-14: Core engine implemented (orchestrator + programmer/operator agents + iteration loop).
 2026-02-14: CLI and local HTTP server implemented and smoke-validated.
 2026-02-14: Unit smoke tests passed (3/3). MVP criteria satisfied.
+2026-02-14: Zero-Ask policy added and persisted for all agent roles.
+2026-02-14: Added context hygiene quality gate and bootstrap scan in iteration preflight.
+2026-02-14: Expanded smoke tests to 6/6 including policy and gate checks.

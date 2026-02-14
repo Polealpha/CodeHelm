@@ -12,6 +12,10 @@ Build an MVP of a continuous autonomous engineering system based on the two prov
 - Implemented local HTTP service: `GET /health`, `GET /status`, `POST /iterate`.
 - Added smoke tests for successful iteration, failure path, and empty-feature guard.
 - Verified local deployment by hitting `/health` endpoint successfully.
+- Added shared `Zero-Ask` runtime policy with persistent artifacts (`AGENT_POLICY.md`, `.caasys/policy.json`).
+- Added anti-context-rot quality gate (`bootstrap` + `quality-gate`) and wired it into iteration preflight.
+- Added duplicate feature-id auto-resolution under zero-ask mode.
+- Expanded smoke tests to 6 cases, including policy persistence and quality-gate failure detection.
 
 ## In Progress
 - None.
@@ -24,14 +28,13 @@ Build an MVP of a continuous autonomous engineering system based on the two prov
 - Optional: add richer auto-fix strategies for failed features.
 - Optional: add browser-automation operator adapter.
 - Optional: add external LLM adapters for fully autonomous code generation.
+- Optional: expose a richer policy editor command for per-agent overrides.
 
 ## Last Command Summary
-- `python -m unittest discover -s tests -p "test_*.py" -v` -> 3 tests passed.
-- `python -m caasys.cli --root tests\\.tmp\\cli-demo init --objective "CLI smoke"` -> initialized.
-- `python -m caasys.cli --root tests\\.tmp\\cli-demo add-feature ... --impl "echo impl" --verify "echo verify"` -> feature added.
-- `python -m caasys.cli --root tests\\.tmp\\cli-demo iterate` -> feature completed with implement+verify command success.
-- In-process server check returned `{"ok": true}` from `http://127.0.0.1:8791/health`.
-- `git log --oneline --decorate -6` confirms incremental history (`feat`, `test`, `docs`, `chore`).
+- `python -m unittest discover -s tests -p "test_*.py" -v` -> 6 tests passed.
+- `python -m caasys.cli --root . policy` -> confirms `zero_ask=true`.
+- `python -m caasys.cli --root . quality-gate --dry-run` -> all checks pass.
+- CLI help confirms new commands: `policy`, `bootstrap`, `quality-gate`.
 
 ## Last Test Summary
-- Unit smoke suite passed: 3/3 (`success path`, `failure blocker path`, `empty feature guard`).
+- Unit smoke suite passed: 6/6 (`success`, `failure`, `empty feature`, `policy persist`, `duplicate id resolve`, `gate failure detect`).

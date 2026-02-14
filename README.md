@@ -9,6 +9,8 @@ The system follows a strict cycle:
 
 `PLAN -> IMPLEMENT -> RUN -> OBSERVE -> FIX -> COMMIT -> NEXT`
 
+Default runtime mode is `Zero-Ask`: agents do not pause for human questions and instead apply a fallback chain.
+
 ## Architecture Sketch
 
 - `Orchestrator` (`src/caasys/orchestrator.py`): selects the highest-priority pending feature and generates a per-iteration plan.
@@ -19,6 +21,9 @@ The system follows a strict cycle:
 - `Interfaces`:
   - CLI (`src/caasys/cli.py`)
   - Local HTTP API (`src/caasys/server.py`)
+- `Policy + Hygiene`:
+  - shared policy (`AGENT_POLICY.md`, `.caasys/policy.json`)
+  - quality gate (`caasys quality-gate`) to prevent context rot
 
 ## Milestones
 
@@ -81,6 +86,8 @@ Mitigations in this repo:
 ```bash
 $env:PYTHONPATH='src'
 python -m caasys.cli --root . init --objective "Build my project autonomously"
+python -m caasys.cli --root . policy
+python -m caasys.cli --root . quality-gate --dry-run
 python -m caasys.cli --root . add-feature --id F-100 --description "Run first task" --impl "echo implement" --verify "echo verify"
 python -m caasys.cli --root . iterate
 python -m caasys.cli --root . status
@@ -97,6 +104,8 @@ API endpoints:
 
 - `GET /health`
 - `GET /status`
+- `GET /policy`
+- `GET /quality-gate`
 - `POST /iterate`
 
 ## Testing
