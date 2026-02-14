@@ -1,50 +1,37 @@
 # AGENT_STATUS
 
 ## Current Objective
-Upgrade system to support full autonomous project loops, explicit stop criteria, and browser-based validation.
+Build and harden a continuous autonomous engineering system with role-based execution, parallel teams, loop stop criteria, browser/OSWorld validation, and context-rot mitigation.
 
 ## Done
-- Added project loop command and engine (`run_project_loop`) to run iterative cycles automatically.
-- Added stop-decision model with reasons:
-  - `all_features_passed`
-  - `quality_gate_failed`
-  - `stagnation_no_progress`
-  - `max_iterations_reached`
-  - `browser_validation_failed`
-- Added browser validation module with backends:
-  - `playwright` (full UI action script)
-  - `http` (fallback assertions)
-  - `system` (open desktop browser)
-- Added new CLI commands:
-  - `run-project`
-  - `browser-validate`
-- Added API endpoints:
-  - `POST /run-project`
-  - `POST /browser-validate`
-- Added paper-backed design notes in `RESEARCH_PAPERS.md`.
-- Added sample browser script in `examples/browser_steps.sample.json`.
-- Expanded tests to cover loop-stop and browser-validation paths.
+- Core loop implemented: `PLAN -> IMPLEMENT -> RUN -> OBSERVE -> FIX -> COMMIT -> NEXT`.
+- Role split inside each agent team: `Orchestrator / Programmer / Operator`.
+- Parallel team execution added with `parallel_safe` scheduling guard.
+- Project loop stop engine added (`all_features_passed`, quality gate fail, stagnation, max iterations).
+- Browser validation added (`playwright` / `http` / `system` backends).
+- OSWorld runner added (`playwright` / `desktop` / `http` backends, policy-gated desktop control).
+- Auto handoff added to reduce context rot (iteration/no-progress/context-size triggers).
+- CLI and HTTP API endpoints added for project loop, browser validation, and OSWorld runs.
+- Smoke coverage expanded to 14 tests, all passing.
 
 ## In Progress
-- None.
+- None
 
 ## Blockers
-- `pip install -e .` remains constrained by temp-directory permissions in this sandbox environment.
+- None
 
 ## Next Steps
-- Optional: add worktree-level isolation for parallel teams with automated merge gate.
-- Optional: add richer browser step actions (file upload, drag-drop, download assertions).
-- Optional: add screenshot/video artifact storage for each browser validation run.
+- Optional: install Playwright runtime and run non-dry UI verification on a real app URL.
+- Optional: tune handoff and stop thresholds for larger repositories.
+- Optional: enable desktop control only when explicit OS automation is required.
 
 ## Last Command Summary
-- `python -m unittest discover -s tests -p "test_*.py" -v` -> 12 tests passed.
-- `python -m caasys.cli --help` -> includes `run-project` and `browser-validate`.
-- `python -m caasys.cli --root . run-project --mode parallel --max-iterations 1 --teams 2 --dry-run` -> stop reason `all_features_passed`.
-- `python -m caasys.cli --root . browser-validate --url ... --backend http --dry-run` -> validation pipeline confirmed.
-- `python -m caasys.cli --root tests\\.tmp\\parallel-cli iterate-parallel --teams 2 --max-features 2` -> real parallel execution succeeded.
+- [test] python -m unittest discover -s tests -p "test_*.py" -v -> ok: 14/14 passed
+- [osworld] $env:PYTHONPATH='src'; python -m caasys.cli --root . osworld-run --backend auto --steps-file examples/osworld_steps.sample.json --dry-run -> ok
+- [loop] $env:PYTHONPATH='src'; python -m caasys.cli --root . run-project --mode single --max-iterations 1 --dry-run -> ok (stop_reason=all_features_passed)
 
 ## Last Test Summary
-- Unit smoke suite passed: 12/12 (includes loop-stop and browser-validation scenarios).
+Smoke test suite passed (14/14). Project loop and OSWorld dry-run validated.
 
 ## Iteration
-4
+7

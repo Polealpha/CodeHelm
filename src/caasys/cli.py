@@ -98,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     browser_parser.add_argument("--dry-run", action="store_true")
 
+    osworld_parser = subparsers.add_parser("osworld-run", help="Run OSWorld-style action script")
+    osworld_parser.add_argument("--backend", choices=["auto", "playwright", "desktop", "http"], default=None)
+    osworld_parser.add_argument("--steps-file", default=None)
+    osworld_parser.add_argument("--url", default=None)
+    osworld_parser.add_argument("--show-browser", action="store_true")
+    osworld_parser.add_argument("--enable-desktop-control", action="store_true")
+    osworld_parser.add_argument("--dry-run", action="store_true")
+
     serve_parser = subparsers.add_parser("serve", help="Run local HTTP control server")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8787)
@@ -200,6 +208,18 @@ def main(argv: list[str] | None = None) -> int:
             expect_text=args.expect_text,
             headless=not args.show_browser,
             open_system_browser=args.open_system_browser,
+            dry_run=args.dry_run,
+        )
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))
+        return 0 if report.success else 2
+
+    if args.command == "osworld-run":
+        report = engine.run_osworld_mode(
+            backend=args.backend,
+            steps_file=args.steps_file,
+            url=args.url,
+            headless=not args.show_browser,
+            enable_desktop_control=args.enable_desktop_control,
             dry_run=args.dry_run,
         )
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))

@@ -8,15 +8,17 @@ import subprocess
 from pathlib import Path
 
 from .agents import OperatorAgent, ProgrammerAgent, ShellExecutor
-from .browser import BrowserValidator
+from .browser import BrowserValidator, OSWorldRunner
 from .models import (
     AgentPolicy,
     AgentStatus,
     BrowserValidationReport,
     CommandResult,
     Feature,
+    HandoffReport,
     HygieneReport,
     IterationReport,
+    OSWorldRunReport,
     ParallelIterationReport,
     ProjectRunReport,
     StopDecision,
@@ -53,6 +55,7 @@ class ContinuousEngine:
         self.operator = operator or OperatorAgent(retry_once=self.policy.retry_failed_commands_once)
         self._executor = ShellExecutor()
         self._browser_validator = BrowserValidator()
+        self._osworld_runner = OSWorldRunner()
         self._sync_runtime_policy()
 
     def _sync_runtime_policy(self) -> None:
@@ -262,6 +265,142 @@ class ContinuousEngine:
             dry_run=dry_run,
         )
 
+    def run_osworld_mode(
+        self,
+        *,
+        backend: str | None = None,
+        steps_file: str | None = None,
+        url: str | None = None,
+        headless: bool | None = None,
+        enable_desktop_control: bool | None = None,
+        dry_run: bool = False,
+    ) -> OSWorldRunReport:
+        policy = self.get_policy()
+        resolved_backend = backend or policy.osworld_action_backend
+        resolved_steps = steps_file or policy.osworld_steps_file
+        resolved_url = url or policy.browser_validation_url
+        resolved_headless = policy.osworld_headless if headless is None else headless
+        resolved_desktop_control = (
+            policy.osworld_enable_desktop_control
+            if enable_desktop_control is None
+            else enable_desktop_control
+        )
+        return self._osworld_runner.run(
+            backend=resolved_backend,
+            steps_file=resolved_steps,
+            url=resolved_url,
+            headless=resolved_headless,
+            screenshot_dir=policy.osworld_screenshot_dir,
+            enable_desktop_control=resolved_desktop_control,
+            dry_run=dry_run,
+        )
+
+    def estimate_context_chars(self) -> int:
+        files = ["AGENT_STATUS.md", "feature_list.json", "progress.log"]
+        total = 0
+        for name in files:
+            path = self.root / name
+            if path.exists():
+                total += len(path.read_text(encoding="utf-8"))
+        return total
+
+    def trigger_handoff_if_needed(
+        self,
+        *,
+        iterations_executed: int,
+        no_progress_iterations: int,
+        context_chars: int,
+        last_report: dict,
+    ) -> HandoffReport:
+        policy = self.get_policy()
+        if not policy.auto_handoff_enabled:
+            return HandoffReport(
+                triggered=False,
+                reason="auto_handoff_disabled",
+                iteration=iterations_executed,
+                context_chars=context_chars,
+                summary_file=policy.handoff_summary_file,
+                summary={},
+            )
+
+        reason = ""
+        if iterations_executed > 0 and iterations_executed % max(1, policy.handoff_after_iterations) == 0:
+            reason = "iteration_threshold"
+        if no_progress_iterations >= max(1, policy.handoff_on_no_progress_iterations):
+            reason = "no_progress_threshold"
+        if context_chars >= max(2000, policy.handoff_context_char_threshold):
+            reason = "context_pressure"
+
+        if not reason:
+            return HandoffReport(
+                triggered=False,
+                reason="no_trigger",
+                iteration=iterations_executed,
+                context_chars=context_chars,
+                summary_file=policy.handoff_summary_file,
+                summary={},
+            )
+
+        summary = self._build_handoff_summary(
+            iterations_executed=iterations_executed,
+            no_progress_iterations=no_progress_iterations,
+            context_chars=context_chars,
+            last_report=last_report,
+            policy=policy,
+        )
+        summary_path = self.root / policy.handoff_summary_file
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+        append_progress(
+            self.root,
+            f"Auto handoff triggered reason={reason} iteration={iterations_executed} context_chars={context_chars}",
+        )
+        return HandoffReport(
+            triggered=True,
+            reason=reason,
+            iteration=iterations_executed,
+            context_chars=context_chars,
+            summary_file=str(summary_path),
+            summary=summary,
+        )
+
+    def _build_handoff_summary(
+        self,
+        *,
+        iterations_executed: int,
+        no_progress_iterations: int,
+        context_chars: int,
+        last_report: dict,
+        policy: AgentPolicy,
+    ) -> dict:
+        status = self.get_status()
+        features = self.list_features()
+        pending = [item for item in features if not item.passes]
+        pending.sort(key=lambda item: (item.priority, item.id))
+        progress_tail = read_progress_tail(self.root, lines=max(5, policy.handoff_max_tail_lines))
+        return {
+            "iteration": iterations_executed,
+            "current_objective": status.current_objective,
+            "context_chars": context_chars,
+            "no_progress_iterations": no_progress_iterations,
+            "done_count": len([item for item in features if item.passes]),
+            "pending_count": len(pending),
+            "top_pending_features": [
+                {
+                    "id": item.id,
+                    "priority": item.priority,
+                    "description": item.description,
+                    "parallel_safe": item.parallel_safe,
+                }
+                for item in pending[:10]
+            ],
+            "latest_blockers": status.blockers[-10:],
+            "latest_commands": status.last_command_summary[-10:],
+            "latest_test_summary": status.last_test_summary,
+            "progress_tail": progress_tail,
+            "last_report": last_report,
+        }
+
     def evaluate_stop_condition(
         self,
         *,
@@ -354,6 +493,8 @@ class ContinuousEngine:
         no_progress_iterations = 0
         last_stop = StopDecision(should_stop=False, reason="continue", success=False)
         browser_report: BrowserValidationReport | None = None
+        handoff_events: list[dict] = []
+        osworld_runs: list[dict] = []
         passed_before, _ = self._feature_progress()
 
         for _ in range(resolved_max_iterations):
@@ -385,6 +526,19 @@ class ContinuousEngine:
                 no_progress_iterations += 1
             passed_before = passed_after
 
+            context_chars = self.estimate_context_chars()
+            handoff = self.trigger_handoff_if_needed(
+                iterations_executed=len(reports),
+                no_progress_iterations=no_progress_iterations,
+                context_chars=context_chars,
+                last_report=report_dict,
+            )
+            if handoff.triggered:
+                handoff_events.append(handoff.to_dict())
+                # Handoff provides a fresh state boundary; give one extra attempt window.
+                if no_progress_iterations > 0:
+                    no_progress_iterations -= 1
+
             need_browser_before_stop = (
                 policy.require_browser_validation_before_stop
                 if browser_validate_on_stop is None
@@ -407,7 +561,20 @@ class ContinuousEngine:
                 and need_browser_before_stop
                 and browser_report is None
             ):
-                browser_report = self.run_browser_validation(dry_run=dry_run)
+                if policy.osworld_mode_enabled:
+                    osworld_report = self.run_osworld_mode(dry_run=dry_run)
+                    osworld_runs.append(osworld_report.to_dict())
+                    browser_report = BrowserValidationReport(
+                        success=osworld_report.success,
+                        backend=f"osworld:{osworld_report.backend}",
+                        url=policy.browser_validation_url or "",
+                        message=osworld_report.message,
+                        checks=[item.message for item in osworld_report.actions if item.success],
+                        errors=[item.message for item in osworld_report.actions if not item.success],
+                        command_results=osworld_report.command_results,
+                    )
+                else:
+                    browser_report = self.run_browser_validation(dry_run=dry_run)
                 tentative_stop = self.evaluate_stop_condition(
                     policy=policy,
                     iterations_executed=len(reports),
@@ -439,6 +606,8 @@ class ContinuousEngine:
             quality_gate_failures=quality_gate_failures,
             no_progress_iterations=no_progress_iterations,
             browser_validation=browser_report,
+            handoff_events=handoff_events,
+            osworld_runs=osworld_runs,
         )
 
     def _execute_feature(

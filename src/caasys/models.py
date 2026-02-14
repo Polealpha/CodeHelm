@@ -60,6 +60,18 @@ class AgentPolicy:
     browser_validation_steps_file: str = ".caasys/browser_steps.json"
     browser_validation_headless: bool = True
     browser_validation_open_system_browser: bool = False
+    osworld_mode_enabled: bool = True
+    osworld_action_backend: str = "auto"
+    osworld_steps_file: str = ".caasys/osworld_steps.json"
+    osworld_headless: bool = True
+    osworld_screenshot_dir: str = ".caasys/osworld_artifacts"
+    osworld_enable_desktop_control: bool = False
+    auto_handoff_enabled: bool = True
+    handoff_after_iterations: int = 4
+    handoff_on_no_progress_iterations: int = 2
+    handoff_context_char_threshold: int = 16000
+    handoff_max_tail_lines: int = 20
+    handoff_summary_file: str = ".caasys/handoff_summary.json"
     hard_blocker_patterns: list[str] = field(
         default_factory=lambda: [
             "permission denied",
@@ -109,6 +121,18 @@ class AgentPolicy:
             browser_validation_open_system_browser=bool(
                 payload.get("browser_validation_open_system_browser", False)
             ),
+            osworld_mode_enabled=bool(payload.get("osworld_mode_enabled", True)),
+            osworld_action_backend=str(payload.get("osworld_action_backend", "auto")),
+            osworld_steps_file=str(payload.get("osworld_steps_file", ".caasys/osworld_steps.json")),
+            osworld_headless=bool(payload.get("osworld_headless", True)),
+            osworld_screenshot_dir=str(payload.get("osworld_screenshot_dir", ".caasys/osworld_artifacts")),
+            osworld_enable_desktop_control=bool(payload.get("osworld_enable_desktop_control", False)),
+            auto_handoff_enabled=bool(payload.get("auto_handoff_enabled", True)),
+            handoff_after_iterations=int(payload.get("handoff_after_iterations", 4)),
+            handoff_on_no_progress_iterations=int(payload.get("handoff_on_no_progress_iterations", 2)),
+            handoff_context_char_threshold=int(payload.get("handoff_context_char_threshold", 16000)),
+            handoff_max_tail_lines=int(payload.get("handoff_max_tail_lines", 20)),
+            handoff_summary_file=str(payload.get("handoff_summary_file", ".caasys/handoff_summary.json")),
             hard_blocker_patterns=list(payload.get("hard_blocker_patterns", []))
             or [
                 "permission denied",
@@ -154,6 +178,22 @@ class AgentPolicy:
             f"- browser_validation_headless: `{str(self.browser_validation_headless).lower()}`",
             f"- browser_validation_open_system_browser: "
             f"`{str(self.browser_validation_open_system_browser).lower()}`",
+            "",
+            "## OSWorld Mode",
+            f"- osworld_mode_enabled: `{str(self.osworld_mode_enabled).lower()}`",
+            f"- osworld_action_backend: `{self.osworld_action_backend}`",
+            f"- osworld_steps_file: `{self.osworld_steps_file}`",
+            f"- osworld_headless: `{str(self.osworld_headless).lower()}`",
+            f"- osworld_screenshot_dir: `{self.osworld_screenshot_dir}`",
+            f"- osworld_enable_desktop_control: `{str(self.osworld_enable_desktop_control).lower()}`",
+            "",
+            "## Auto Handoff",
+            f"- auto_handoff_enabled: `{str(self.auto_handoff_enabled).lower()}`",
+            f"- handoff_after_iterations: `{self.handoff_after_iterations}`",
+            f"- handoff_on_no_progress_iterations: `{self.handoff_on_no_progress_iterations}`",
+            f"- handoff_context_char_threshold: `{self.handoff_context_char_threshold}`",
+            f"- handoff_max_tail_lines: `{self.handoff_max_tail_lines}`",
+            f"- handoff_summary_file: `{self.handoff_summary_file}`",
             "",
             "## Quality Gate",
             f"- run_smoke_before_iteration: `{str(self.run_smoke_before_iteration).lower()}`",
@@ -375,11 +415,59 @@ class ProjectRunReport:
     quality_gate_failures: int = 0
     no_progress_iterations: int = 0
     browser_validation: BrowserValidationReport | None = None
+    handoff_events: list[dict[str, Any]] = field(default_factory=list)
+    osworld_runs: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         if self.browser_validation:
             payload["browser_validation"] = self.browser_validation.to_dict()
+        return payload
+
+
+@dataclass
+class HandoffReport:
+    """Snapshot emitted when automatic handoff is triggered."""
+
+    triggered: bool
+    reason: str
+    iteration: int
+    context_chars: int
+    summary_file: str
+    summary: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class OSWorldActionResult:
+    """One action execution result in OSWorld mode."""
+
+    action: str
+    success: bool
+    message: str
+    details: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class OSWorldRunReport:
+    """Report from OSWorld-style browser/desktop task execution."""
+
+    success: bool
+    backend: str
+    message: str
+    actions: list[OSWorldActionResult] = field(default_factory=list)
+    command_results: list[CommandResult] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["actions"] = [item.to_dict() for item in self.actions]
+        payload["command_results"] = [item.to_dict() for item in self.command_results]
         return payload
 
 

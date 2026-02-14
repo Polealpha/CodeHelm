@@ -75,5 +75,19 @@
     "description": "Paper-backed design mapping is documented for loop, stop, and browser validation",
     "priority": 11,
     "passes": true
+  },
+  {
+    "id": "F-012",
+    "category": "handoff",
+    "description": "Auto handoff snapshot is triggered on context/no-progress thresholds",
+    "priority": 12,
+    "passes": true
+  },
+  {
+    "id": "F-013",
+    "category": "osworld",
+    "description": "OSWorld-style action runner supports playwright/desktop/http backends",
+    "priority": 13,
+    "passes": true
   }
 ]

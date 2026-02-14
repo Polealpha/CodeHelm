@@ -17,5 +17,14 @@
 2026-02-14: Expanded smoke tests to 12/12 including loop-stop and browser validation coverage.
 2026-02-14 03:54:54Z Iteration 3 parallel skipped: no pending features
 2026-02-14 03:54:54Z Project loop finished mode=parallel iterations=1 reason=all_features_passed
+2026-02-14: Added OSWorld action runner (playwright/desktop/http) with CLI/API entry points.
+2026-02-14: Added auto-handoff trigger and summary snapshots to reduce context rot.
+2026-02-14: Expanded smoke tests for handoff and OSWorld dry-run behavior.
 2026-02-14 03:56:34Z Iteration 4 skipped: no pending features
 2026-02-14 03:56:34Z Project loop finished mode=single iterations=1 reason=all_features_passed
+2026-02-14 04:24:56Z Iteration 5 skipped: no pending features
+2026-02-14 04:24:56Z Project loop finished mode=single iterations=1 reason=all_features_passed
+2026-02-14: Finalized OSWorld mode policy fields and CLI/API command plumbing.
+2026-02-14: Finalized auto-handoff summary generation and reporting in project loop output.
+2026-02-14 04:29:33Z Iteration 6 skipped: no pending features
+2026-02-14 04:29:33Z Project loop finished mode=single iterations=1 reason=all_features_passed

@@ -14,5 +14,6 @@ Use this checklist every iteration to avoid context corruption:
 6. Update `AGENT_STATUS.md` and `progress.log` before ending iteration.
 7. Create a small commit.
 8. For full autonomous runs, use `run-project` and inspect `stop_reason` before accepting completion.
+9. If auto handoff triggers, review `.caasys/handoff_summary.json` before continuing.
 
 No interactive questions are required in normal flow (`zero_ask=true`).

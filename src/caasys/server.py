@@ -43,7 +43,13 @@ class _ControlHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path not in {"/iterate", "/iterate-parallel", "/run-project", "/browser-validate"}:
+        if path not in {
+            "/iterate",
+            "/iterate-parallel",
+            "/run-project",
+            "/browser-validate",
+            "/osworld-run",
+        }:
             self._send_json(404, {"error": "not found"})
             return
 
@@ -87,13 +93,25 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send_json(200 if report.success else 409, report.to_dict())
             return
 
-        report = self.engine.run_browser_validation(
-            url=payload.get("url"),
+        if path == "/browser-validate":
+            report = self.engine.run_browser_validation(
+                url=payload.get("url"),
+                backend=payload.get("backend"),
+                steps_file=payload.get("steps_file"),
+                expect_text=payload.get("expect_text"),
+                headless=payload.get("headless"),
+                open_system_browser=payload.get("open_system_browser"),
+                dry_run=bool(payload.get("dry_run", False)),
+            )
+            self._send_json(200 if report.success else 409, report.to_dict())
+            return
+
+        report = self.engine.run_osworld_mode(
             backend=payload.get("backend"),
             steps_file=payload.get("steps_file"),
-            expect_text=payload.get("expect_text"),
+            url=payload.get("url"),
             headless=payload.get("headless"),
-            open_system_browser=payload.get("open_system_browser"),
+            enable_desktop_control=payload.get("enable_desktop_control"),
             dry_run=bool(payload.get("dry_run", False)),
         )
         self._send_json(200 if report.success else 409, report.to_dict())

@@ -12,6 +12,7 @@ authors = [{name = "Codex Agent"}]
 
 [project.optional-dependencies]
 browser = ["playwright>=1.49.0"]
+osworld = ["playwright>=1.49.0", "pyautogui>=0.9.54"]
 
 [project.scripts]
 caasys = "caasys.cli:main"

@@ -24,6 +24,22 @@
 - browser_validation_headless: `true`
 - browser_validation_open_system_browser: `false`
 
+## OSWorld Mode
+- osworld_mode_enabled: `true`
+- osworld_action_backend: `auto`
+- osworld_steps_file: `.caasys/osworld_steps.json`
+- osworld_headless: `true`
+- osworld_screenshot_dir: `.caasys/osworld_artifacts`
+- osworld_enable_desktop_control: `false`
+
+## Auto Handoff
+- auto_handoff_enabled: `true`
+- handoff_after_iterations: `4`
+- handoff_on_no_progress_iterations: `2`
+- handoff_context_char_threshold: `16000`
+- handoff_max_tail_lines: `20`
+- handoff_summary_file: `.caasys/handoff_summary.json`
+
 ## Quality Gate
 - run_smoke_before_iteration: `true` (auto-disabled when `tests/` is missing in target root)
 - smoke_test_command: `python -m unittest discover -s tests -p "test_*.py" -v`

@@ -22,6 +22,8 @@ Default runtime mode is `Zero-Ask`: agents do not pause for human questions and 
 - `Parallel Team Runner` (`src/caasys/engine.py`): dispatches multiple pending features to concurrent teams while each team still uses role-based execution.
 - `Project Loop Runner` (`src/caasys/engine.py`): runs full-cycle iterations until explicit stop criteria are met.
 - `Browser Validator` (`src/caasys/browser.py`): validates web flows via `playwright` / `http` fallback / system browser launch.
+- `OSWorld Runner` (`src/caasys/browser.py`): executes OSWorld-style action scripts (`playwright`, `desktop`, `http`).
+- `Auto Handoff Manager` (`src/caasys/engine.py`): triggers snapshot handoff when context/no-progress thresholds are reached.
 - `Storage Layer` (`src/caasys/storage.py`): persists `AGENT_STATUS.md`, `feature_list.json`, `.caasys/state.json`, and `progress.log`.
 - `Interfaces`:
   - CLI (`src/caasys/cli.py`)
@@ -48,6 +50,7 @@ Minimum viable completion requires:
 - optional parallel team execution (`iterate-parallel`);
 - full project auto-loop with stop decision (`run-project`);
 - browser-based web verification (`browser-validate`);
+- OSWorld action-script execution (`osworld-run`);
 - persistent status/memory artifacts;
 - local API server with health/status/iterate endpoints;
 - smoke tests for pass/fail/guard flows.
@@ -106,6 +109,7 @@ python -m caasys.cli --root . iterate
 python -m caasys.cli --root . iterate-parallel --teams 2 --max-features 2
 python -m caasys.cli --root . run-project --mode parallel --teams 2 --max-iterations 10
 python -m caasys.cli --root . browser-validate --url http://127.0.0.1:3000 --backend http --expect-text "Dashboard"
+python -m caasys.cli --root . osworld-run --backend playwright --steps-file examples/osworld_steps.sample.json --show-browser
 python -m caasys.cli --root . status
 ```
 
@@ -123,11 +127,25 @@ Project loop stop criteria:
 - `max_iterations_reached`
 - optional `browser_validation_failed` when browser check is required before final stop
 
+Auto handoff triggers (to reduce context rot):
+
+- iteration threshold (`handoff_after_iterations`)
+- no-progress threshold (`handoff_on_no_progress_iterations`)
+- context size threshold (`handoff_context_char_threshold`)
+
+When triggered, a summary snapshot is written to `.caasys/handoff_summary.json` (configurable).
+
 Browser validation backends:
 
 - `playwright`: full web actions (goto/click/fill/press/expect_text/expect_url_contains).
 - `http`: lightweight fallback (`GET` + text assertions).
 - `system`: open your desktop browser (no DOM automation).
+
+OSWorld backends:
+
+- `playwright`: web-agent style scripted actions.
+- `desktop`: desktop mouse/keyboard automation via `pyautogui` (needs explicit enable).
+- `http`: non-UI fallback.
 
 To enable full browser automation with Playwright:
 
@@ -135,6 +153,15 @@ To enable full browser automation with Playwright:
 pip install -e ".[browser]"
 python -m playwright install chromium
 ```
+
+To enable OSWorld desktop backend:
+
+```bash
+pip install -e ".[osworld]"
+python -m playwright install chromium
+```
+
+Desktop control remains policy-gated (`osworld_enable_desktop_control=false` by default).
 
 Use a JSON steps file with `--steps-file` (supported by `playwright` and partially by `http` for `expect_text`):
 
@@ -166,6 +193,7 @@ API endpoints:
 - `POST /iterate-parallel`
 - `POST /run-project`
 - `POST /browser-validate`
+- `POST /osworld-run`
 
 ## Testing
 

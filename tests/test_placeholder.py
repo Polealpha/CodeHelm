@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import sys
@@ -240,6 +241,7 @@ class EngineSmokeTests(unittest.TestCase):
         )
         policy = engine.get_policy()
         policy.max_no_progress_iterations = 2
+        policy.auto_handoff_enabled = False
         save_policy(root, policy)
 
         report = engine.run_project_loop(mode="single", max_iterations=5)
@@ -319,6 +321,56 @@ class EngineSmokeTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_auto_handoff_triggers_and_records_summary(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Handoff trigger")
+        engine.add_feature(
+            Feature(
+                id="F-HAND",
+                category="loop",
+                description="fails to force no progress",
+                priority=1,
+                implementation_commands=['python -c "import sys; sys.exit(2)"'],
+            )
+        )
+
+        policy = engine.get_policy()
+        policy.handoff_on_no_progress_iterations = 1
+        policy.handoff_after_iterations = 100
+        policy.handoff_context_char_threshold = 1_000_000
+        save_policy(root, policy)
+
+        report = engine.run_project_loop(mode="single", max_iterations=2, dry_run=False)
+        self.assertGreaterEqual(len(report.handoff_events), 1)
+        summary_path = Path(report.handoff_events[0]["summary_file"])
+        self.assertTrue(summary_path.exists())
+
+    def test_osworld_mode_dry_run(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("OSWorld dry run")
+
+        steps_path = root / ".caasys" / "osworld_steps.json"
+        steps_path.parent.mkdir(parents=True, exist_ok=True)
+        steps_path.write_text(
+            json.dumps(
+                [
+                    {"action": "goto", "url": "http://127.0.0.1:3000"},
+                    {"action": "click", "selector": "text=Login"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        policy = engine.get_policy()
+        policy.osworld_steps_file = str(steps_path)
+        save_policy(root, policy)
+
+        report = engine.run_osworld_mode(backend="auto", dry_run=True)
+        self.assertTrue(report.success)
+        self.assertGreaterEqual(len(report.actions), 1)
 
 
 if __name__ == "__main__":
