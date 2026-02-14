@@ -131,6 +131,64 @@ class EngineSmokeTests(unittest.TestCase):
         self.assertFalse(gate.ok)
         self.assertTrue(any("MISSING_CONTEXT_FILE.md" in failure for failure in gate.failures))
 
+    def test_parallel_iteration_completes_parallel_safe_features(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Parallel success")
+
+        engine.add_feature(
+            Feature(
+                id="F-P1",
+                category="parallel",
+                description="parallel feature 1",
+                priority=1,
+                parallel_safe=True,
+                implementation_commands=["echo p1"],
+                verification_command="echo vp1",
+            )
+        )
+        engine.add_feature(
+            Feature(
+                id="F-P2",
+                category="parallel",
+                description="parallel feature 2",
+                priority=2,
+                parallel_safe=True,
+                implementation_commands=["echo p2"],
+                verification_command="echo vp2",
+            )
+        )
+
+        report = engine.run_parallel_iteration(team_count=2, max_features=2)
+        self.assertTrue(report.success)
+        self.assertEqual(len(report.team_results), 2)
+        self.assertTrue(all(item.success for item in report.team_results))
+        status = engine.get_status()
+        self.assertTrue(any("F-P1" in item for item in status.done))
+        self.assertTrue(any("F-P2" in item for item in status.done))
+
+    def test_parallel_iteration_respects_parallel_safe_gate(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Parallel safety gate")
+
+        engine.add_feature(
+            Feature(
+                id="F-NP",
+                category="parallel",
+                description="not parallel safe",
+                priority=1,
+                parallel_safe=False,
+                implementation_commands=["echo np"],
+                verification_command="echo vnp",
+            )
+        )
+
+        report = engine.run_parallel_iteration(team_count=2, max_features=1, force_unsafe=False)
+        self.assertFalse(report.success)
+        self.assertEqual(report.selected_feature_ids, [])
+        self.assertIn("parallel-safe", report.result)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
