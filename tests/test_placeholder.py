@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import sys
 import unittest
 from pathlib import Path
@@ -188,6 +190,135 @@ class EngineSmokeTests(unittest.TestCase):
         self.assertFalse(report.success)
         self.assertEqual(report.selected_feature_ids, [])
         self.assertIn("parallel-safe", report.result)
+
+    def test_run_project_loop_stops_when_all_features_pass(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Loop success")
+
+        engine.add_feature(
+            Feature(
+                id="F-L1",
+                category="loop",
+                description="loop feature one",
+                priority=1,
+                implementation_commands=["echo l1"],
+                verification_command="echo vl1",
+            )
+        )
+        engine.add_feature(
+            Feature(
+                id="F-L2",
+                category="loop",
+                description="loop feature two",
+                priority=2,
+                implementation_commands=["echo l2"],
+                verification_command="echo vl2",
+            )
+        )
+
+        report = engine.run_project_loop(mode="single", max_iterations=10)
+        self.assertTrue(report.success)
+        self.assertEqual(report.stop_reason, "all_features_passed")
+        self.assertGreaterEqual(report.final_passed_features, 2)
+        self.assertLessEqual(report.iterations_executed, 3)
+
+    def test_run_project_loop_stops_on_no_progress(self) -> None:
+        root = self._workspace_temp_root()
+        engine = ContinuousEngine(root=root)
+        engine.initialize("Loop stagnation")
+
+        engine.add_feature(
+            Feature(
+                id="F-STUCK",
+                category="loop",
+                description="always fails",
+                priority=1,
+                implementation_commands=['python -c "import sys; sys.exit(2)"'],
+                verification_command="echo never",
+            )
+        )
+        policy = engine.get_policy()
+        policy.max_no_progress_iterations = 2
+        save_policy(root, policy)
+
+        report = engine.run_project_loop(mode="single", max_iterations=5)
+        self.assertFalse(report.success)
+        self.assertEqual(report.stop_reason, "stagnation_no_progress")
+
+    def test_browser_validation_http_backend(self) -> None:
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                payload = b"<html><body><h1>Dashboard Ready</h1></body></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, format, *args):  # noqa: A003
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            root = self._workspace_temp_root()
+            engine = ContinuousEngine(root=root)
+            engine.initialize("Browser validation")
+            url = f"http://127.0.0.1:{server.server_port}/"
+            report = engine.run_browser_validation(url=url, backend="http", expect_text="Dashboard Ready")
+            self.assertTrue(report.success)
+            self.assertEqual(report.backend, "http")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_run_project_loop_with_browser_validation_before_stop(self) -> None:
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                payload = b"<html><body>Release Complete</body></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, format, *args):  # noqa: A003
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            root = self._workspace_temp_root()
+            engine = ContinuousEngine(root=root)
+            engine.initialize("Loop with browser stop check")
+            engine.add_feature(
+                Feature(
+                    id="F-BSTOP",
+                    category="loop",
+                    description="pass quickly",
+                    priority=1,
+                    implementation_commands=["echo done"],
+                    verification_command="echo vdone",
+                )
+            )
+
+            policy = engine.get_policy()
+            policy.require_browser_validation_before_stop = True
+            policy.browser_validation_url = f"http://127.0.0.1:{server.server_port}/"
+            policy.browser_validation_backend = "http"
+            save_policy(root, policy)
+
+            report = engine.run_project_loop(mode="single", max_iterations=5)
+            self.assertTrue(report.success)
+            self.assertEqual(report.stop_reason, "all_features_passed")
+            self.assertIsNotNone(report.browser_validation)
+            self.assertTrue(report.browser_validation.success)
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":
