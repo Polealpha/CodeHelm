@@ -43,7 +43,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path not in {"/iterate", "/iterate-parallel"}:
+        if path not in {"/iterate", "/iterate-parallel", "/run-project", "/browser-validate"}:
             self._send_json(404, {"error": "not found"})
             return
 
@@ -62,11 +62,38 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send_json(200, report.to_dict())
             return
 
-        report = self.engine.run_parallel_iteration(
-            team_count=payload.get("teams"),
-            max_features=payload.get("max_features"),
-            force_unsafe=bool(payload.get("force_unsafe", False)),
-            commit=bool(payload.get("commit", False)),
+        if path == "/iterate-parallel":
+            report = self.engine.run_parallel_iteration(
+                team_count=payload.get("teams"),
+                max_features=payload.get("max_features"),
+                force_unsafe=bool(payload.get("force_unsafe", False)),
+                commit=bool(payload.get("commit", False)),
+                dry_run=bool(payload.get("dry_run", False)),
+            )
+            self._send_json(200 if report.success else 409, report.to_dict())
+            return
+
+        if path == "/run-project":
+            report = self.engine.run_project_loop(
+                mode=str(payload.get("mode", "single")),
+                max_iterations=payload.get("max_iterations"),
+                team_count=payload.get("teams"),
+                max_features=payload.get("max_features"),
+                force_unsafe=bool(payload.get("force_unsafe", False)),
+                commit=bool(payload.get("commit", False)),
+                dry_run=bool(payload.get("dry_run", False)),
+                browser_validate_on_stop=payload.get("browser_validate_on_stop"),
+            )
+            self._send_json(200 if report.success else 409, report.to_dict())
+            return
+
+        report = self.engine.run_browser_validation(
+            url=payload.get("url"),
+            backend=payload.get("backend"),
+            steps_file=payload.get("steps_file"),
+            expect_text=payload.get("expect_text"),
+            headless=payload.get("headless"),
+            open_system_browser=payload.get("open_system_browser"),
             dry_run=bool(payload.get("dry_run", False)),
         )
         self._send_json(200 if report.success else 409, report.to_dict())

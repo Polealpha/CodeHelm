@@ -66,6 +66,38 @@ def build_parser() -> argparse.ArgumentParser:
     iterate_parallel_parser.add_argument("--commit", action="store_true", help="Attempt git commit after iteration")
     iterate_parallel_parser.add_argument("--dry-run", action="store_true", help="Skip actual command execution")
 
+    run_project_parser = subparsers.add_parser("run-project", help="Run project loop until stop criteria")
+    run_project_parser.add_argument("--mode", choices=["single", "parallel"], default="single")
+    run_project_parser.add_argument("--max-iterations", type=int, default=None)
+    run_project_parser.add_argument("--teams", type=int, default=None)
+    run_project_parser.add_argument("--max-features", type=int, default=None)
+    run_project_parser.add_argument("--force-unsafe", action="store_true")
+    run_project_parser.add_argument("--browser-validate-on-stop", action="store_true")
+    run_project_parser.add_argument("--commit", action="store_true", help="Attempt git commit during iterations")
+    run_project_parser.add_argument("--dry-run", action="store_true", help="Skip actual command execution")
+
+    browser_parser = subparsers.add_parser("browser-validate", help="Run browser or HTTP validation checks")
+    browser_parser.add_argument("--url", default=None, help="Target URL (defaults to policy browser_validation_url)")
+    browser_parser.add_argument(
+        "--backend",
+        choices=["auto", "playwright", "system", "http"],
+        default=None,
+        help="Validation backend (defaults to policy setting).",
+    )
+    browser_parser.add_argument("--steps-file", default=None, help="JSON steps file for browser actions")
+    browser_parser.add_argument("--expect-text", default=None, help="Expect text in final page/response")
+    browser_parser.add_argument(
+        "--show-browser",
+        action="store_true",
+        help="Run browser in non-headless mode when backend supports it.",
+    )
+    browser_parser.add_argument(
+        "--open-system-browser",
+        action="store_true",
+        help="Open your desktop browser after validation.",
+    )
+    browser_parser.add_argument("--dry-run", action="store_true")
+
     serve_parser = subparsers.add_parser("serve", help="Run local HTTP control server")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8787)
@@ -142,6 +174,33 @@ def main(argv: list[str] | None = None) -> int:
             commit=args.commit,
             dry_run=args.dry_run,
             force_unsafe=args.force_unsafe,
+        )
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))
+        return 0 if report.success else 2
+
+    if args.command == "run-project":
+        report = engine.run_project_loop(
+            mode=args.mode,
+            max_iterations=args.max_iterations,
+            team_count=args.teams,
+            max_features=args.max_features,
+            force_unsafe=args.force_unsafe,
+            commit=args.commit,
+            dry_run=args.dry_run,
+            browser_validate_on_stop=args.browser_validate_on_stop,
+        )
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))
+        return 0 if report.success else 2
+
+    if args.command == "browser-validate":
+        report = engine.run_browser_validation(
+            url=args.url,
+            backend=args.backend,
+            steps_file=args.steps_file,
+            expect_text=args.expect_text,
+            headless=not args.show_browser,
+            open_system_browser=args.open_system_browser,
+            dry_run=args.dry_run,
         )
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=True))
         return 0 if report.success else 2

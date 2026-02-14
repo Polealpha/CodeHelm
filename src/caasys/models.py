@@ -49,6 +49,17 @@ class AgentPolicy:
     default_parallel_teams: int = 2
     max_parallel_features_per_iteration: int = 4
     require_parallel_safe_flag: bool = True
+    max_iterations_per_run: int = 20
+    max_no_progress_iterations: int = 3
+    stop_when_all_features_pass: bool = True
+    stop_on_quality_gate_failure: bool = True
+    require_browser_validation_before_stop: bool = False
+    browser_validation_enabled: bool = False
+    browser_validation_backend: str = "auto"
+    browser_validation_url: str | None = None
+    browser_validation_steps_file: str = ".caasys/browser_steps.json"
+    browser_validation_headless: bool = True
+    browser_validation_open_system_browser: bool = False
     hard_blocker_patterns: list[str] = field(
         default_factory=lambda: [
             "permission denied",
@@ -81,6 +92,23 @@ class AgentPolicy:
             default_parallel_teams=int(payload.get("default_parallel_teams", 2)),
             max_parallel_features_per_iteration=int(payload.get("max_parallel_features_per_iteration", 4)),
             require_parallel_safe_flag=bool(payload.get("require_parallel_safe_flag", True)),
+            max_iterations_per_run=int(payload.get("max_iterations_per_run", 20)),
+            max_no_progress_iterations=int(payload.get("max_no_progress_iterations", 3)),
+            stop_when_all_features_pass=bool(payload.get("stop_when_all_features_pass", True)),
+            stop_on_quality_gate_failure=bool(payload.get("stop_on_quality_gate_failure", True)),
+            require_browser_validation_before_stop=bool(
+                payload.get("require_browser_validation_before_stop", False)
+            ),
+            browser_validation_enabled=bool(payload.get("browser_validation_enabled", False)),
+            browser_validation_backend=str(payload.get("browser_validation_backend", "auto")),
+            browser_validation_url=payload.get("browser_validation_url"),
+            browser_validation_steps_file=str(
+                payload.get("browser_validation_steps_file", ".caasys/browser_steps.json")
+            ),
+            browser_validation_headless=bool(payload.get("browser_validation_headless", True)),
+            browser_validation_open_system_browser=bool(
+                payload.get("browser_validation_open_system_browser", False)
+            ),
             hard_blocker_patterns=list(payload.get("hard_blocker_patterns", []))
             or [
                 "permission denied",
@@ -110,6 +138,22 @@ class AgentPolicy:
             f"- default_parallel_teams: `{self.default_parallel_teams}`",
             f"- max_parallel_features_per_iteration: `{self.max_parallel_features_per_iteration}`",
             f"- require_parallel_safe_flag: `{str(self.require_parallel_safe_flag).lower()}`",
+            "",
+            "## Stop Criteria",
+            f"- max_iterations_per_run: `{self.max_iterations_per_run}`",
+            f"- max_no_progress_iterations: `{self.max_no_progress_iterations}`",
+            f"- stop_when_all_features_pass: `{str(self.stop_when_all_features_pass).lower()}`",
+            f"- stop_on_quality_gate_failure: `{str(self.stop_on_quality_gate_failure).lower()}`",
+            f"- require_browser_validation_before_stop: `{str(self.require_browser_validation_before_stop).lower()}`",
+            "",
+            "## Browser Validation",
+            f"- browser_validation_enabled: `{str(self.browser_validation_enabled).lower()}`",
+            f"- browser_validation_backend: `{self.browser_validation_backend}`",
+            f"- browser_validation_url: `{self.browser_validation_url or 'None'}`",
+            f"- browser_validation_steps_file: `{self.browser_validation_steps_file}`",
+            f"- browser_validation_headless: `{str(self.browser_validation_headless).lower()}`",
+            f"- browser_validation_open_system_browser: "
+            f"`{str(self.browser_validation_open_system_browser).lower()}`",
             "",
             "## Quality Gate",
             f"- run_smoke_before_iteration: `{str(self.run_smoke_before_iteration).lower()}`",
@@ -284,6 +328,58 @@ class ParallelIterationReport:
         payload = asdict(self)
         payload["team_results"] = [item.to_dict() for item in self.team_results]
         payload["command_results"] = [item.to_dict() for item in self.command_results]
+        return payload
+
+
+@dataclass
+class BrowserValidationReport:
+    """Result of browser-based or HTTP-based validation checks."""
+
+    success: bool
+    backend: str
+    url: str
+    message: str
+    checks: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    command_results: list[CommandResult] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["command_results"] = [item.to_dict() for item in self.command_results]
+        return payload
+
+
+@dataclass
+class StopDecision:
+    """Decision output for determining whether a project loop should stop."""
+
+    should_stop: bool
+    reason: str
+    success: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ProjectRunReport:
+    """Summary of a full autonomous project loop run."""
+
+    mode: str
+    iterations_executed: int
+    success: bool
+    stop_reason: str
+    final_passed_features: int
+    total_features: int
+    reports: list[dict[str, Any]] = field(default_factory=list)
+    quality_gate_failures: int = 0
+    no_progress_iterations: int = 0
+    browser_validation: BrowserValidationReport | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        if self.browser_validation:
+            payload["browser_validation"] = self.browser_validation.to_dict()
         return payload
 
 

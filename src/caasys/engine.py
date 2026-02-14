@@ -8,14 +8,18 @@ import subprocess
 from pathlib import Path
 
 from .agents import OperatorAgent, ProgrammerAgent, ShellExecutor
+from .browser import BrowserValidator
 from .models import (
     AgentPolicy,
     AgentStatus,
+    BrowserValidationReport,
     CommandResult,
     Feature,
     HygieneReport,
     IterationReport,
     ParallelIterationReport,
+    ProjectRunReport,
+    StopDecision,
     TeamExecutionResult,
 )
 from .orchestrator import Orchestrator
@@ -48,6 +52,7 @@ class ContinuousEngine:
         self.programmer = programmer or ProgrammerAgent(retry_once=self.policy.retry_failed_commands_once)
         self.operator = operator or OperatorAgent(retry_once=self.policy.retry_failed_commands_once)
         self._executor = ShellExecutor()
+        self._browser_validator = BrowserValidator()
         self._sync_runtime_policy()
 
     def _sync_runtime_policy(self) -> None:
@@ -208,6 +213,233 @@ class ContinuousEngine:
             checks.append("smoke test disabled by policy")
 
         return HygieneReport(ok=not failures, checks=checks, failures=failures, command_results=command_results)
+
+    def _feature_progress(self) -> tuple[int, int]:
+        features = load_features(self.root)
+        total = len(features)
+        passed = len([item for item in features if item.passes])
+        return passed, total
+
+    def run_browser_validation(
+        self,
+        *,
+        url: str | None = None,
+        backend: str | None = None,
+        steps_file: str | None = None,
+        expect_text: str | None = None,
+        headless: bool | None = None,
+        open_system_browser: bool | None = None,
+        dry_run: bool = False,
+    ) -> BrowserValidationReport:
+        policy = self.get_policy()
+        target_url = url or policy.browser_validation_url
+        if not target_url:
+            return BrowserValidationReport(
+                success=False,
+                backend=backend or policy.browser_validation_backend,
+                url="",
+                message="Browser validation URL is not configured.",
+                checks=[],
+                errors=["Set policy.browser_validation_url or pass --url."],
+                command_results=[],
+            )
+
+        resolved_backend = backend or policy.browser_validation_backend
+        resolved_steps = steps_file or policy.browser_validation_steps_file
+        resolved_headless = policy.browser_validation_headless if headless is None else headless
+        resolved_open_browser = (
+            policy.browser_validation_open_system_browser
+            if open_system_browser is None
+            else open_system_browser
+        )
+        return self._browser_validator.validate(
+            url=target_url,
+            backend=resolved_backend,
+            steps_file=resolved_steps,
+            expect_text=expect_text,
+            headless=resolved_headless,
+            open_system_browser=resolved_open_browser,
+            dry_run=dry_run,
+        )
+
+    def evaluate_stop_condition(
+        self,
+        *,
+        policy: AgentPolicy,
+        iterations_executed: int,
+        max_iterations: int,
+        passed_features: int,
+        total_features: int,
+        no_progress_iterations: int,
+        last_report_success: bool,
+        last_quality_gate_ok: bool | None,
+        browser_validation: BrowserValidationReport | None,
+    ) -> StopDecision:
+        if policy.stop_on_quality_gate_failure and last_quality_gate_ok is False:
+            return StopDecision(
+                should_stop=True,
+                reason="quality_gate_failed",
+                success=False,
+            )
+
+        if policy.stop_when_all_features_pass and total_features > 0 and passed_features >= total_features:
+            if policy.require_browser_validation_before_stop:
+                if browser_validation is None:
+                    return StopDecision(
+                        should_stop=False,
+                        reason="await_browser_validation",
+                        success=False,
+                    )
+                if not browser_validation.success:
+                    return StopDecision(
+                        should_stop=True,
+                        reason="browser_validation_failed",
+                        success=False,
+                    )
+            return StopDecision(
+                should_stop=True,
+                reason="all_features_passed",
+                success=True,
+            )
+
+        if total_features == 0 and iterations_executed >= 1 and last_report_success:
+            return StopDecision(
+                should_stop=True,
+                reason="no_features_configured",
+                success=True,
+            )
+
+        if no_progress_iterations >= max(1, policy.max_no_progress_iterations):
+            return StopDecision(
+                should_stop=True,
+                reason="stagnation_no_progress",
+                success=False,
+            )
+
+        if iterations_executed >= max_iterations:
+            return StopDecision(
+                should_stop=True,
+                reason="max_iterations_reached",
+                success=last_report_success and passed_features == total_features and total_features > 0,
+            )
+
+        return StopDecision(
+            should_stop=False,
+            reason="continue",
+            success=False,
+        )
+
+    def run_project_loop(
+        self,
+        *,
+        mode: str = "single",
+        max_iterations: int | None = None,
+        team_count: int | None = None,
+        max_features: int | None = None,
+        force_unsafe: bool = False,
+        commit: bool = False,
+        dry_run: bool = False,
+        browser_validate_on_stop: bool | None = None,
+    ) -> ProjectRunReport:
+        policy = self.get_policy()
+        resolved_mode = mode.strip().lower()
+        if resolved_mode not in {"single", "parallel"}:
+            resolved_mode = "single"
+
+        resolved_max_iterations = max_iterations or policy.max_iterations_per_run
+        resolved_max_iterations = max(1, resolved_max_iterations)
+
+        reports: list[dict] = []
+        quality_gate_failures = 0
+        no_progress_iterations = 0
+        last_stop = StopDecision(should_stop=False, reason="continue", success=False)
+        browser_report: BrowserValidationReport | None = None
+        passed_before, _ = self._feature_progress()
+
+        for _ in range(resolved_max_iterations):
+            if resolved_mode == "parallel":
+                report = self.run_parallel_iteration(
+                    team_count=team_count,
+                    max_features=max_features,
+                    force_unsafe=force_unsafe,
+                    commit=commit,
+                    dry_run=dry_run,
+                )
+                report_dict = report.to_dict()
+                last_quality_gate_ok = report.quality_gate_ok
+                last_success = report.success
+            else:
+                report = self.run_iteration(commit=commit, dry_run=dry_run)
+                report_dict = report.to_dict()
+                last_quality_gate_ok = report.quality_gate_ok
+                last_success = report.success
+
+            reports.append(report_dict)
+            if last_quality_gate_ok is False:
+                quality_gate_failures += 1
+
+            passed_after, total_features = self._feature_progress()
+            if passed_after > passed_before:
+                no_progress_iterations = 0
+            else:
+                no_progress_iterations += 1
+            passed_before = passed_after
+
+            need_browser_before_stop = (
+                policy.require_browser_validation_before_stop
+                if browser_validate_on_stop is None
+                else browser_validate_on_stop
+            )
+            tentative_stop = self.evaluate_stop_condition(
+                policy=policy,
+                iterations_executed=len(reports),
+                max_iterations=resolved_max_iterations,
+                passed_features=passed_after,
+                total_features=total_features,
+                no_progress_iterations=no_progress_iterations,
+                last_report_success=last_success,
+                last_quality_gate_ok=last_quality_gate_ok,
+                browser_validation=browser_report,
+            )
+
+            if (
+                tentative_stop.reason in {"all_features_passed", "await_browser_validation"}
+                and need_browser_before_stop
+                and browser_report is None
+            ):
+                browser_report = self.run_browser_validation(dry_run=dry_run)
+                tentative_stop = self.evaluate_stop_condition(
+                    policy=policy,
+                    iterations_executed=len(reports),
+                    max_iterations=resolved_max_iterations,
+                    passed_features=passed_after,
+                    total_features=total_features,
+                    no_progress_iterations=no_progress_iterations,
+                    last_report_success=last_success,
+                    last_quality_gate_ok=last_quality_gate_ok,
+                    browser_validation=browser_report,
+                )
+
+            last_stop = tentative_stop
+            if tentative_stop.should_stop:
+                break
+
+        append_progress(
+            self.root,
+            f"Project loop finished mode={resolved_mode} iterations={len(reports)} reason={last_stop.reason}",
+        )
+        return ProjectRunReport(
+            mode=resolved_mode,
+            iterations_executed=len(reports),
+            success=last_stop.success,
+            stop_reason=last_stop.reason,
+            final_passed_features=passed_before,
+            total_features=self._feature_progress()[1],
+            reports=reports,
+            quality_gate_failures=quality_gate_failures,
+            no_progress_iterations=no_progress_iterations,
+            browser_validation=browser_report,
+        )
 
     def _execute_feature(
         self,
