@@ -274,8 +274,8 @@ Before publishing, review and update:
 If your GitHub org/user and contact addresses differ, replace placeholders:
 
 - `https://github.com/Polealpha/CodeHelm`
-- `maintainers@example.com`
-- `security@example.com`
+- `polealpha@163.com`
+- `polealpha@163.com`
 
 ---
 
@@ -546,5 +546,5 @@ python -m unittest discover -s tests -p "test_*.py" -v
 如果你的 GitHub 组织/用户名和联系邮箱不同，请替换占位符：
 
 - `https://github.com/Polealpha/CodeHelm`
-- `maintainers@example.com`
-- `security@example.com`
+- `polealpha@163.com`
+- `polealpha@163.com`

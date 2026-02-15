@@ -8,7 +8,7 @@ Security fixes are applied to the latest `main` branch.
 
 Do not open public issues for vulnerabilities.
 
-Send a private report to: `security@example.com`
+Send a private report to: `polealpha@163.com`
 
 Please include:
 
