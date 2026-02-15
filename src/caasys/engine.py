@@ -6,8 +6,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import subprocess
 from pathlib import Path
+from threading import Lock
+from time import time
 
-from .agents import OperatorAgent, ProgrammerAgent, ShellExecutor
+from .agents import (
+    CodexPlannerAgent,
+    CodexProgrammerAgent,
+    OperatorAgent,
+    ProgrammerAgent,
+    ShellExecutor,
+)
 from .browser import BrowserValidator, OSWorldRunner
 from .models import (
     AgentPolicy,
@@ -56,7 +64,61 @@ class ContinuousEngine:
         self._executor = ShellExecutor()
         self._browser_validator = BrowserValidator()
         self._osworld_runner = OSWorldRunner()
+        self._activity_lock = Lock()
+        self._active_workers: dict[str, dict[str, object]] = {}
+        self._worker_identity_numbers: dict[str, int] = {}
+        self._worker_role_numbers: dict[tuple[str, str], int] = {}
+        self._next_role_identity_by_role: dict[str, int] = {}
+        self._next_worker_identity = 1
         self._sync_runtime_policy()
+
+    def _register_worker_activity(
+        self,
+        *,
+        worker_key: str,
+        role: str,
+        feature_id: str | None = None,
+        team_id: str | None = None,
+        task_id: str | None = None,
+        model: str | None = None,
+        backend: str | None = None,
+    ) -> None:
+        with self._activity_lock:
+            number = self._worker_identity_numbers.get(worker_key)
+            if number is None:
+                number = self._next_worker_identity
+                self._worker_identity_numbers[worker_key] = number
+                self._next_worker_identity += 1
+            role_key = (role, worker_key)
+            role_number = self._worker_role_numbers.get(role_key)
+            if role_number is None:
+                role_number = self._next_role_identity_by_role.get(role, 1)
+                self._worker_role_numbers[role_key] = role_number
+                self._next_role_identity_by_role[role] = role_number + 1
+            self._active_workers[worker_key] = {
+                "worker_key": worker_key,
+                "ai_id": f"AI-{number:02d}",
+                "number": number,
+                "role": role,
+                "role_id": _format_role_identity(role=role, number=role_number),
+                "role_number": role_number,
+                "feature_id": feature_id or "",
+                "team_id": team_id or "",
+                "task_id": task_id or "",
+                "model": model or "",
+                "backend": backend or "",
+                "started_at": time(),
+            }
+
+    def _unregister_worker_activity(self, worker_key: str) -> None:
+        with self._activity_lock:
+            self._active_workers.pop(worker_key, None)
+
+    def get_active_workers(self) -> list[dict[str, object]]:
+        with self._activity_lock:
+            workers = [dict(item) for item in self._active_workers.values()]
+        workers.sort(key=lambda item: int(item.get("number", 0)))
+        return workers
 
     def _sync_runtime_policy(self) -> None:
         self.orchestrator.policy = self.policy
@@ -125,6 +187,170 @@ class ContinuousEngine:
         self._sync_runtime_policy()
         return self.policy
 
+    def set_model_settings(
+        self,
+        *,
+        cli_path: str | None = None,
+        implementation_backend: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        ui_language: str | None = None,
+        sandbox_mode: str | None = None,
+        full_auto: bool | None = None,
+        skip_git_repo_check: bool | None = None,
+        ephemeral: bool | None = None,
+        timeout_seconds: int | None = None,
+        planner_sandbox_mode: str | None = None,
+        planner_disable_shell_tool: bool | None = None,
+        planner_max_features_per_task: int | None = None,
+    ) -> AgentPolicy:
+        policy = self.get_policy()
+        if cli_path is not None:
+            policy.codex_cli_path = cli_path.strip()
+        if implementation_backend is not None:
+            policy.implementation_backend = implementation_backend.strip().lower()
+        if model is not None:
+            policy.codex_model = model.strip()
+        if reasoning_effort is not None:
+            policy.codex_reasoning_effort = reasoning_effort.strip()
+        if ui_language is not None:
+            normalized = ui_language.strip().lower()
+            if normalized in {"en", "english", "en-us"}:
+                policy.ui_language = "en"
+            elif normalized in {"zh", "zh-cn", "cn", "chinese", "中文"}:
+                policy.ui_language = "zh"
+        if sandbox_mode is not None:
+            policy.codex_sandbox_mode = sandbox_mode.strip()
+        if full_auto is not None:
+            policy.codex_full_auto = full_auto
+        if skip_git_repo_check is not None:
+            policy.codex_skip_git_repo_check = skip_git_repo_check
+        if ephemeral is not None:
+            policy.codex_ephemeral = ephemeral
+        if timeout_seconds is not None:
+            policy.codex_timeout_seconds = max(30, timeout_seconds)
+        if planner_sandbox_mode is not None:
+            policy.planner_sandbox_mode = planner_sandbox_mode.strip()
+        if planner_disable_shell_tool is not None:
+            policy.planner_disable_shell_tool = planner_disable_shell_tool
+        if planner_max_features_per_task is not None:
+            policy.planner_max_features_per_task = max(1, planner_max_features_per_task)
+
+        save_policy(self.root, policy)
+        self.policy = policy
+        self._sync_runtime_policy()
+        append_progress(
+            self.root,
+            "Model settings updated: "
+            f"backend={policy.implementation_backend}, model={policy.codex_model}, "
+            f"reasoning_effort={policy.codex_reasoning_effort}, ui_language={policy.ui_language}",
+        )
+        return policy
+
+    def plan_task(
+        self,
+        *,
+        task_id: str,
+        description: str,
+        max_features: int | None = None,
+        category: str = "functional",
+        parallel_safe: bool = False,
+        dry_run: bool = False,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+    ) -> dict[str, object]:
+        normalized_task_id = task_id.strip()
+        normalized_description = description.strip()
+        if not normalized_task_id or not normalized_description:
+            return {
+                "task_id": task_id,
+                "success": False,
+                "message": "task_id and description are required.",
+                "feature_ids": [],
+                "features": [],
+                "dry_run": dry_run,
+                "used_fallback_plan": False,
+                "command_results": [],
+                "planner_output": "",
+            }
+
+        policy = self.get_policy()
+        status = self.get_status()
+        planner = CodexPlannerAgent(
+            cli_path=policy.codex_cli_path,
+            model=model or policy.codex_model,
+            reasoning_effort=reasoning_effort or policy.codex_reasoning_effort,
+            sandbox_mode=policy.planner_sandbox_mode,
+            full_auto=policy.codex_full_auto,
+            skip_git_repo_check=policy.codex_skip_git_repo_check,
+            ephemeral=policy.codex_ephemeral,
+            disable_shell_tool=policy.planner_disable_shell_tool,
+            timeout_seconds=policy.codex_timeout_seconds,
+        )
+        resolved_max_features = max_features or policy.planner_max_features_per_task
+        resolved_max_features = max(1, resolved_max_features)
+        planner_worker_key = f"planner:{normalized_task_id}"
+        self._register_worker_activity(
+            worker_key=planner_worker_key,
+            role="Planner",
+            task_id=normalized_task_id,
+            model=model or policy.codex_model,
+            backend="codex",
+        )
+        try:
+            planned_features, planner_result, planner_output, used_fallback = planner.plan_task(
+                task_id=normalized_task_id,
+                task_description=normalized_description,
+                cwd=self.root,
+                max_features=resolved_max_features,
+                default_category=category.strip() or "functional",
+                parallel_safe_default=parallel_safe,
+                objective=status.current_objective,
+                dry_run=dry_run,
+            )
+        finally:
+            self._unregister_worker_activity(planner_worker_key)
+
+        if not planned_features:
+            return {
+                "task_id": task_id,
+                "success": False,
+                "message": "Planner did not return any features.",
+                "feature_ids": [],
+                "features": [],
+                "dry_run": dry_run,
+                "used_fallback_plan": used_fallback,
+                "command_results": [planner_result.to_dict()],
+                "planner_output": planner_output,
+            }
+
+        created_features: list[Feature] = []
+        if dry_run:
+            created_features = planned_features
+        else:
+            for feature in planned_features:
+                created_features.append(self.add_feature(feature))
+            append_progress(
+                self.root,
+                f"Task planned: {normalized_task_id} -> {', '.join(item.id for item in created_features)}",
+            )
+
+        return {
+            "task_id": normalized_task_id,
+            "success": True,
+            "message": (
+                f"Planned {len(created_features)} features from task {normalized_task_id}."
+                + (" (dry-run)" if dry_run else "")
+                + (" Fallback plan used." if used_fallback else "")
+            ),
+            "feature_ids": [item.id for item in created_features],
+            "features": [item.to_dict() for item in created_features],
+            "dry_run": dry_run,
+            "used_fallback_plan": used_fallback,
+            "command_results": [planner_result.to_dict()],
+            "planner_output": planner_output,
+        }
+
     def bootstrap_session(self, dry_run: bool = False) -> tuple[list[str], list[CommandResult]]:
         """Collect lightweight state to reduce context drift across sessions."""
         status = load_status(self.root)
@@ -171,7 +397,10 @@ class ContinuousEngine:
             if required_path.exists():
                 checks.append(f"required file present: {required}")
             else:
-                failures.append(f"required file missing: {required}")
+                if self._restore_required_context_file(required):
+                    checks.append(f"required file restored: {required}")
+                else:
+                    failures.append(f"required file missing: {required}")
 
         features = load_features(self.root)
         ids = [item.id for item in features]
@@ -217,11 +446,36 @@ class ContinuousEngine:
 
         return HygieneReport(ok=not failures, checks=checks, failures=failures, command_results=command_results)
 
+    def _restore_required_context_file(self, required: str) -> bool:
+        """Best-effort recovery for core engine artifacts when manually deleted."""
+        token = required.strip().replace("\\", "/").lower()
+        if token == "agent_status.md":
+            save_status(self.root, load_status(self.root))
+            return True
+        if token == "feature_list.json":
+            save_features(self.root, load_features(self.root))
+            return True
+        if token == "progress.log":
+            (self.root / "progress.log").touch(exist_ok=True)
+            return True
+        if token == "agent_policy.md":
+            save_policy(self.root, load_policy(self.root))
+            return True
+        return False
+
     def _feature_progress(self) -> tuple[int, int]:
         features = load_features(self.root)
         total = len(features)
         passed = len([item for item in features if item.passes])
         return passed, total
+
+    def _resolve_implementation_backend(self, feature: Feature) -> str:
+        backend = (self.policy.implementation_backend or "codex").strip().lower()
+        if backend in {"shell", "codex"}:
+            return backend
+        if backend == "auto":
+            return "shell" if feature.implementation_commands else "codex"
+        return "codex"
 
     def run_browser_validation(
         self,
@@ -485,8 +739,8 @@ class ContinuousEngine:
         if resolved_mode not in {"single", "parallel"}:
             resolved_mode = "single"
 
-        resolved_max_iterations = max_iterations or policy.max_iterations_per_run
-        resolved_max_iterations = max(1, resolved_max_iterations)
+        resolved_max_epochs = max_iterations or policy.max_iterations_per_run
+        resolved_max_epochs = max(1, resolved_max_epochs)
 
         reports: list[dict] = []
         quality_gate_failures = 0
@@ -497,26 +751,84 @@ class ContinuousEngine:
         osworld_runs: list[dict] = []
         passed_before, _ = self._feature_progress()
 
-        for _ in range(resolved_max_iterations):
-            if resolved_mode == "parallel":
-                report = self.run_parallel_iteration(
-                    team_count=team_count,
-                    max_features=max_features,
-                    force_unsafe=force_unsafe,
-                    commit=commit,
-                    dry_run=dry_run,
-                )
-                report_dict = report.to_dict()
-                last_quality_gate_ok = report.quality_gate_ok
-                last_success = report.success
-            else:
-                report = self.run_iteration(commit=commit, dry_run=dry_run)
-                report_dict = report.to_dict()
-                last_quality_gate_ok = report.quality_gate_ok
-                last_success = report.success
+        for _ in range(resolved_max_epochs):
+            # One run-project "iteration" is treated as a full epoch:
+            # each feature pending at epoch start is attempted at most once.
+            epoch_number = len(reports) + 1
+            epoch_initial_pending_ids = [item.id for item in self.list_features() if not item.passes]
+            epoch_attempted_ids: set[str] = set()
+            epoch_subreports: list[dict] = []
+            epoch_last_quality_gate_ok: bool | None = True
+            epoch_last_success = True
 
-            reports.append(report_dict)
-            if last_quality_gate_ok is False:
+            if epoch_initial_pending_ids:
+                while True:
+                    remaining_ids = [
+                        feature_id
+                        for feature_id in epoch_initial_pending_ids
+                        if feature_id not in epoch_attempted_ids
+                    ]
+                    if not remaining_ids:
+                        break
+
+                    if resolved_mode == "parallel":
+                        iteration_report = self.run_parallel_iteration(
+                            team_count=team_count,
+                            max_features=max_features,
+                            force_unsafe=force_unsafe,
+                            commit=commit,
+                            dry_run=dry_run,
+                            exclude_feature_ids=epoch_attempted_ids,
+                        )
+                        report_dict = iteration_report.to_dict()
+                        considered_ids = set(iteration_report.selected_feature_ids) | set(
+                            iteration_report.skipped_feature_ids
+                        )
+                        epoch_last_quality_gate_ok = iteration_report.quality_gate_ok
+                        epoch_last_success = iteration_report.success
+                    else:
+                        iteration_report = self.run_iteration(
+                            commit=commit,
+                            dry_run=dry_run,
+                            exclude_feature_ids=epoch_attempted_ids,
+                        )
+                        report_dict = iteration_report.to_dict()
+                        considered_ids = {iteration_report.feature_id} if iteration_report.feature_id else set()
+                        epoch_last_quality_gate_ok = iteration_report.quality_gate_ok
+                        epoch_last_success = iteration_report.success
+
+                    epoch_subreports.append(report_dict)
+                    epoch_attempted_ids.update(considered_ids)
+
+                    if epoch_last_quality_gate_ok is False:
+                        break
+                    if not considered_ids:
+                        break
+
+            if epoch_subreports:
+                epoch_success = all(bool(item.get("success", False)) for item in epoch_subreports)
+                epoch_last_success = bool(epoch_subreports[-1].get("success", False))
+                epoch_last_quality_gate_ok = all(
+                    item.get("quality_gate_ok") is not False for item in epoch_subreports
+                )
+            else:
+                epoch_success = True
+                epoch_last_success = True
+                epoch_last_quality_gate_ok = True if not epoch_initial_pending_ids else None
+
+            epoch_report = {
+                "epoch": epoch_number,
+                "mode": resolved_mode,
+                "initial_pending_feature_ids": epoch_initial_pending_ids,
+                "attempted_feature_ids": sorted(epoch_attempted_ids),
+                "subreports": epoch_subreports,
+                "success": epoch_success,
+                "quality_gate_ok": epoch_last_quality_gate_ok,
+                "pending_after_epoch": [item.id for item in self.list_features() if not item.passes],
+            }
+            reports.append(epoch_report)
+
+            if epoch_last_quality_gate_ok is False:
                 quality_gate_failures += 1
 
             passed_after, total_features = self._feature_progress()
@@ -531,7 +843,7 @@ class ContinuousEngine:
                 iterations_executed=len(reports),
                 no_progress_iterations=no_progress_iterations,
                 context_chars=context_chars,
-                last_report=report_dict,
+                last_report=epoch_report,
             )
             if handoff.triggered:
                 handoff_events.append(handoff.to_dict())
@@ -547,12 +859,12 @@ class ContinuousEngine:
             tentative_stop = self.evaluate_stop_condition(
                 policy=policy,
                 iterations_executed=len(reports),
-                max_iterations=resolved_max_iterations,
+                max_iterations=resolved_max_epochs,
                 passed_features=passed_after,
                 total_features=total_features,
                 no_progress_iterations=no_progress_iterations,
-                last_report_success=last_success,
-                last_quality_gate_ok=last_quality_gate_ok,
+                last_report_success=epoch_last_success,
+                last_quality_gate_ok=epoch_last_quality_gate_ok,
                 browser_validation=browser_report,
             )
 
@@ -578,12 +890,12 @@ class ContinuousEngine:
                 tentative_stop = self.evaluate_stop_condition(
                     policy=policy,
                     iterations_executed=len(reports),
-                    max_iterations=resolved_max_iterations,
+                    max_iterations=resolved_max_epochs,
                     passed_features=passed_after,
                     total_features=total_features,
                     no_progress_iterations=no_progress_iterations,
-                    last_report_success=last_success,
-                    last_quality_gate_ok=last_quality_gate_ok,
+                    last_report_success=epoch_last_success,
+                    last_quality_gate_ok=epoch_last_quality_gate_ok,
                     browser_validation=browser_report,
                 )
 
@@ -593,7 +905,7 @@ class ContinuousEngine:
 
         append_progress(
             self.root,
-            f"Project loop finished mode={resolved_mode} iterations={len(reports)} reason={last_stop.reason}",
+            f"Project loop finished mode={resolved_mode} epochs={len(reports)} reason={last_stop.reason}",
         )
         return ProjectRunReport(
             mode=resolved_mode,
@@ -615,9 +927,19 @@ class ContinuousEngine:
         feature: Feature,
         dry_run: bool = False,
         team_id: str | None = None,
+        objective: str | None = None,
+        iteration_number: int | None = None,
     ) -> TeamExecutionResult:
         phase_prefix = f"{team_id}:" if team_id else ""
-        if not feature.implementation_commands and not feature.verification_command:
+        implementation_backend = self._resolve_implementation_backend(feature)
+        workspace_before_snapshot: dict[str, tuple[int, int]] | None = None
+        if implementation_backend == "codex" and not dry_run:
+            workspace_before_snapshot = _snapshot_workspace_files(self.root)
+        if (
+            implementation_backend == "shell"
+            and not feature.implementation_commands
+            and not feature.verification_command
+        ):
             return TeamExecutionResult(
                 team_id=team_id or "single",
                 feature_id=feature.id,
@@ -626,19 +948,77 @@ class ContinuousEngine:
                 command_results=[],
             )
 
-        programmer = ProgrammerAgent(retry_once=self.policy.retry_failed_commands_once)
+        programmer_key = f"{team_id or 'single'}:{feature.id}:{implementation_backend}:programmer"
+        self._register_worker_activity(
+            worker_key=programmer_key,
+            role="Programmer",
+            feature_id=feature.id,
+            team_id=team_id,
+            model=self.policy.codex_model if implementation_backend == "codex" else "",
+            backend=implementation_backend,
+        )
+        try:
+            if implementation_backend == "codex":
+                programmer = CodexProgrammerAgent(
+                    cli_path=self.policy.codex_cli_path,
+                    model=self.policy.codex_model,
+                    reasoning_effort=self.policy.codex_reasoning_effort,
+                    sandbox_mode=self.policy.codex_sandbox_mode,
+                    full_auto=self.policy.codex_full_auto,
+                    skip_git_repo_check=self.policy.codex_skip_git_repo_check,
+                    ephemeral=self.policy.codex_ephemeral,
+                    timeout_seconds=self.policy.codex_timeout_seconds,
+                    retry_once=self.policy.retry_failed_commands_once,
+                )
+                implementation_results = programmer.implement(
+                    feature=feature,
+                    cwd=self.root,
+                    dry_run=dry_run,
+                    objective=objective,
+                    team_id=team_id,
+                    iteration_number=iteration_number,
+                )
+            else:
+                programmer = ProgrammerAgent(retry_once=self.policy.retry_failed_commands_once)
+                implementation_results = programmer.implement(feature=feature, cwd=self.root, dry_run=dry_run)
+        finally:
+            self._unregister_worker_activity(programmer_key)
+
         operator = OperatorAgent(retry_once=self.policy.retry_failed_commands_once)
 
-        implementation_results = programmer.implement(feature=feature, cwd=self.root, dry_run=dry_run)
+        if implementation_backend == "codex" and not dry_run:
+            guard_result = _detect_codex_noop_result(implementation_results)
+            if guard_result is not None:
+                implementation_results.append(guard_result)
+
         implementation_ok = all(result.exit_code == 0 for result in implementation_results)
 
         verification_results: list[CommandResult] = []
         if implementation_ok:
-            verification_results = operator.verify(feature=feature, cwd=self.root, dry_run=dry_run)
-        verification_ok = all(result.exit_code == 0 for result in verification_results)
-
+            operator_key = f"{team_id or 'single'}:{feature.id}:operator"
+            self._register_worker_activity(
+                worker_key=operator_key,
+                role="Operator",
+                feature_id=feature.id,
+                team_id=team_id,
+                backend="verify",
+            )
+            try:
+                verification_results = operator.verify(feature=feature, cwd=self.root, dry_run=dry_run)
+            finally:
+                self._unregister_worker_activity(operator_key)
         command_results = implementation_results + verification_results
-        success = implementation_ok and verification_ok
+        if implementation_backend == "codex" and not dry_run and workspace_before_snapshot is not None:
+            workspace_after_snapshot = _snapshot_workspace_files(self.root)
+            workspace_guard = _detect_missing_workspace_change(
+                before_snapshot=workspace_before_snapshot,
+                after_snapshot=workspace_after_snapshot,
+                verification_results=verification_results,
+            )
+            if workspace_guard is not None:
+                command_results.append(workspace_guard)
+
+        success = all(result.exit_code == 0 for result in command_results)
         if success:
             message = f"{phase_prefix}feature {feature.id} completed"
         else:
@@ -657,7 +1037,12 @@ class ContinuousEngine:
             command_results=command_results,
         )
 
-    def run_iteration(self, commit: bool = False, dry_run: bool = False) -> IterationReport:
+    def run_iteration(
+        self,
+        commit: bool = False,
+        dry_run: bool = False,
+        exclude_feature_ids: set[str] | None = None,
+    ) -> IterationReport:
         status = load_status(self.root)
         self.policy = load_policy(self.root)
         self._sync_runtime_policy()
@@ -700,7 +1085,17 @@ class ContinuousEngine:
                 command_results=preflight_command_results,
             )
 
-        feature = self.orchestrator.pick_next_feature(features)
+        orchestrator_key = f"orchestrator:iteration:{iteration_number}:single"
+        self._register_worker_activity(
+            worker_key=orchestrator_key,
+            role="Orchestrator",
+            backend="scheduler",
+        )
+        try:
+            feature = self.orchestrator.pick_next_feature(features, exclude_feature_ids=exclude_feature_ids)
+            orchestrator_plan = self.orchestrator.build_plan(feature) if feature is not None else []
+        finally:
+            self._unregister_worker_activity(orchestrator_key)
 
         if feature is None:
             status.in_progress = []
@@ -731,11 +1126,16 @@ class ContinuousEngine:
         plan = [
             "BOOTSTRAP: refresh status, progress tail, and git summary",
             "QUALITY_GATE: required artifacts and smoke test",
-            *self.orchestrator.build_plan(feature),
+            *orchestrator_plan,
         ]
         status.in_progress = [f"Iteration {iteration_number}: {feature.id} {feature.description}"]
 
-        execution = self._execute_feature(feature=feature, dry_run=dry_run)
+        execution = self._execute_feature(
+            feature=feature,
+            dry_run=dry_run,
+            objective=status.current_objective,
+            iteration_number=iteration_number,
+        )
         command_results = execution.command_results
         success = execution.success
         verification_results = [item for item in command_results if item.phase.startswith("verify")]
@@ -766,7 +1166,15 @@ class ContinuousEngine:
         ]
         status.last_test_summary = test_summary
 
-        next_feature = self.orchestrator.pick_next_feature(features)
+        self._register_worker_activity(
+            worker_key=orchestrator_key,
+            role="Orchestrator",
+            backend="scheduler",
+        )
+        try:
+            next_feature = self.orchestrator.pick_next_feature(features)
+        finally:
+            self._unregister_worker_activity(orchestrator_key)
         if next_feature:
             status.next_steps = [f"Run next feature: {next_feature.id} - {next_feature.description}"]
         else:
@@ -802,6 +1210,7 @@ class ContinuousEngine:
         commit: bool = False,
         dry_run: bool = False,
         force_unsafe: bool = False,
+        exclude_feature_ids: set[str] | None = None,
     ) -> ParallelIterationReport:
         status = load_status(self.root)
         self.policy = load_policy(self.root)
@@ -831,6 +1240,7 @@ class ContinuousEngine:
                 result="Parallel mode disabled by policy.",
                 next_step=status.next_steps[0],
                 quality_gate_ok=gate_ok,
+                skipped_feature_ids=[],
                 bootstrap_notes=bootstrap_notes,
                 team_results=[],
                 command_results=preflight_command_results,
@@ -858,6 +1268,7 @@ class ContinuousEngine:
                 result="Parallel iteration stopped by quality gate.",
                 next_step=status.next_steps[0],
                 quality_gate_ok=False,
+                skipped_feature_ids=[],
                 bootstrap_notes=bootstrap_notes,
                 team_results=[],
                 command_results=preflight_command_results,
@@ -867,7 +1278,20 @@ class ContinuousEngine:
         resolved_max_features = max_features or self.policy.max_parallel_features_per_iteration
         resolved_max_features = max(1, resolved_max_features)
 
-        candidates = self.orchestrator.pick_next_features(features, resolved_max_features)
+        orchestrator_key = f"orchestrator:iteration:{iteration_number}:parallel"
+        self._register_worker_activity(
+            worker_key=orchestrator_key,
+            role="Orchestrator",
+            backend="scheduler",
+        )
+        try:
+            candidates = self.orchestrator.pick_next_features(
+                features,
+                resolved_max_features,
+                exclude_feature_ids=exclude_feature_ids,
+            )
+        finally:
+            self._unregister_worker_activity(orchestrator_key)
         if not candidates:
             status.in_progress = []
             status.next_steps = ["No pending features. Add new features to continue."]
@@ -885,6 +1309,7 @@ class ContinuousEngine:
                 result="All features already pass.",
                 next_step="Add new features if more work is needed.",
                 quality_gate_ok=True,
+                skipped_feature_ids=[],
                 bootstrap_notes=bootstrap_notes,
                 team_results=[],
                 command_results=preflight_command_results,
@@ -919,6 +1344,7 @@ class ContinuousEngine:
                 result="No parallel-safe features available for parallel execution.",
                 next_step=status.next_steps[0],
                 quality_gate_ok=True,
+                skipped_feature_ids=skipped_unsafe,
                 bootstrap_notes=bootstrap_notes,
                 team_results=[],
                 command_results=preflight_command_results,
@@ -935,7 +1361,16 @@ class ContinuousEngine:
             futures = []
             for index, feature in enumerate(selected_features):
                 team_id = f"team-{(index % resolved_team_count) + 1}"
-                futures.append(pool.submit(self._execute_feature, feature, dry_run, team_id))
+                futures.append(
+                    pool.submit(
+                        self._execute_feature,
+                        feature,
+                        dry_run,
+                        team_id,
+                        status.current_objective,
+                        iteration_number,
+                    )
+                )
 
             for future in as_completed(futures):
                 team_results.append(future.result())
@@ -968,7 +1403,15 @@ class ContinuousEngine:
         else:
             status.last_test_summary = "Quality gate passed; one or more parallel team executions failed or were skipped."
 
-        next_feature = self.orchestrator.pick_next_feature(features)
+        self._register_worker_activity(
+            worker_key=orchestrator_key,
+            role="Orchestrator",
+            backend="scheduler",
+        )
+        try:
+            next_feature = self.orchestrator.pick_next_feature(features)
+        finally:
+            self._unregister_worker_activity(orchestrator_key)
         if next_feature:
             status.next_steps = [f"Next pending feature: {next_feature.id} - {next_feature.description}"]
         else:
@@ -1001,6 +1444,7 @@ class ContinuousEngine:
             ),
             next_step=status.next_steps[0],
             quality_gate_ok=True,
+            skipped_feature_ids=skipped_unsafe,
             bootstrap_notes=bootstrap_notes,
             team_results=team_results,
             command_results=all_command_results,
@@ -1070,9 +1514,121 @@ def _find_first_failure(results):
     return None
 
 
+def _format_role_identity(*, role: str, number: int) -> str:
+    role_code = {
+        "Orchestrator": "ORC",
+        "Planner": "PLN",
+        "Programmer": "PRG",
+        "Operator": "OPS",
+    }.get(role, "AI")
+    return f"{role_code}-{number:02d}"
+
+
 def _detect_hard_blocker(failure_text: str, policy: AgentPolicy) -> str | None:
     lower = failure_text.lower()
     for marker in policy.hard_blocker_patterns:
         if marker.lower() in lower:
             return marker
     return None
+
+
+def _detect_codex_noop_result(results: list[CommandResult]) -> CommandResult | None:
+    if not results:
+        return None
+    if any(item.exit_code != 0 for item in results):
+        return None
+
+    combined_output = "\n".join(
+        chunk.strip()
+        for chunk in [
+            *[item.stdout for item in results],
+            *[item.stderr for item in results],
+        ]
+        if chunk and chunk.strip()
+    )
+    if not combined_output:
+        return None
+    if not _looks_like_codex_noop_response(combined_output):
+        return None
+
+    return CommandResult(
+        command="codex-response-guard",
+        exit_code=21,
+        stdout="",
+        stderr="codex returned acknowledgement/no-op output without implementation evidence",
+        duration_seconds=0.0,
+        phase="implement-codex-guard",
+    )
+
+
+def _looks_like_codex_noop_response(text: str) -> bool:
+    lower = text.lower()
+    markers = [
+        "provide the next work item",
+        "send the next objective",
+        "ready to run as the coding worker",
+        "operating in autonomous coding mode",
+        "operating mode set",
+        "i'll execute tasks end-to-end",
+        "i will execute tasks end-to-end",
+        "send the next task",
+        "share the target outcome",
+    ]
+    if not any(marker in lower for marker in markers):
+        return False
+
+    work_signals = [
+        "files changed",
+        "changed files",
+        "created ",
+        "updated ",
+        "modified ",
+        "wrote ",
+        "test",
+        "verification",
+        "pytest",
+        "unittest",
+    ]
+    return not any(signal in lower for signal in work_signals)
+
+
+def _snapshot_workspace_files(root: Path) -> dict[str, tuple[int, int]]:
+    snapshot: dict[str, tuple[int, int]] = {}
+    excluded_files = {"AGENT_STATUS.md", "AGENT_POLICY.md", "feature_list.json", "progress.log"}
+    excluded_prefixes = (".caasys/", ".git/")
+
+    for file_path in root.rglob("*"):
+        if not file_path.is_file():
+            continue
+        try:
+            rel = file_path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel in excluded_files or rel.startswith(excluded_prefixes):
+            continue
+        try:
+            stat = file_path.stat()
+        except OSError:
+            continue
+        snapshot[rel] = (int(stat.st_size), int(stat.st_mtime_ns))
+    return snapshot
+
+
+def _detect_missing_workspace_change(
+    *,
+    before_snapshot: dict[str, tuple[int, int]],
+    after_snapshot: dict[str, tuple[int, int]],
+    verification_results: list[CommandResult],
+) -> CommandResult | None:
+    if before_snapshot != after_snapshot:
+        return None
+    if verification_results:
+        return None
+    return CommandResult(
+        command="workspace-change-guard",
+        exit_code=22,
+        stdout="",
+        stderr="codex run produced no repository file changes and no verification results",
+        duration_seconds=0.0,
+        phase="implement-codex-guard",
+    )

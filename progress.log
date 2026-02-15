@@ -28,3 +28,4 @@
 2026-02-14: Finalized auto-handoff summary generation and reporting in project loop output.
 2026-02-14 04:29:33Z Iteration 6 skipped: no pending features
 2026-02-14 04:29:33Z Project loop finished mode=single iterations=1 reason=all_features_passed
+2026-02-15: Planned next-phase backlog features F-014..F-017 (doctor, policy tuning, browser evidence artifacts, desktop safety hardening).

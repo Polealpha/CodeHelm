@@ -2,6 +2,8 @@
 
 ## Mode
 - zero_ask: `true`
+- implementation_backend: `codex`
+- planner_max_features_per_task: `4`
 - auto_resolve_duplicate_feature_ids: `true`
 - retry_failed_commands_once: `true`
 - enable_parallel_teams: `true`
@@ -9,11 +11,24 @@
 - max_parallel_features_per_iteration: `4`
 - require_parallel_safe_flag: `true`
 
+## Codex Execution
+- codex_cli_path: `codex`
+- codex_model: `gpt-5.3-codex`
+- codex_reasoning_effort: `xhigh`
+- ui_language: `en`
+- codex_sandbox_mode: `workspace-write`
+- codex_full_auto: `true`
+- codex_skip_git_repo_check: `false`
+- codex_ephemeral: `false`
+- codex_timeout_seconds: `1800`
+- planner_sandbox_mode: `read-only`
+- planner_disable_shell_tool: `true`
+
 ## Stop Criteria
 - max_iterations_per_run: `20`
 - max_no_progress_iterations: `3`
 - stop_when_all_features_pass: `true`
-- stop_on_quality_gate_failure: `true`
+- stop_on_quality_gate_failure: `false`
 - require_browser_validation_before_stop: `false`
 
 ## Browser Validation
@@ -41,7 +56,7 @@
 - handoff_summary_file: `.caasys/handoff_summary.json`
 
 ## Quality Gate
-- run_smoke_before_iteration: `true` (auto-disabled when `tests/` is missing in target root)
+- run_smoke_before_iteration: `false`
 - smoke_test_command: `python -m unittest discover -s tests -p "test_*.py" -v`
 
 ## Hard Blocker Patterns

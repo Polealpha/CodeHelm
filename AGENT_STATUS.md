@@ -21,9 +21,10 @@ Build and harden a continuous autonomous engineering system with role-based exec
 - None
 
 ## Next Steps
-- Optional: install Playwright runtime and run non-dry UI verification on a real app URL.
-- Optional: tune handoff and stop thresholds for larger repositories.
-- Optional: enable desktop control only when explicit OS automation is required.
+- Execute `F-014`: add runtime dependency doctor and shared diagnostics for browser/OSWorld checks.
+- Execute `F-015`: add CLI policy tuning for stop and handoff thresholds.
+- Execute `F-016`: persist browser stop-check evidence artifacts and expose report paths.
+- Execute `F-017`: enforce desktop-control acknowledgement token and action audit logging.
 
 ## Last Command Summary
 - [test] python -m unittest discover -s tests -p "test_*.py" -v -> ok: 14/14 passed

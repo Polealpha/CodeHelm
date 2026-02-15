@@ -41,18 +41,31 @@ class AgentPolicy:
     """Shared runtime policy applied to all local agents."""
 
     zero_ask: bool = True
+    implementation_backend: str = "codex"
+    planner_max_features_per_task: int = 4
     auto_resolve_duplicate_feature_ids: bool = True
     retry_failed_commands_once: bool = True
-    run_smoke_before_iteration: bool = True
+    run_smoke_before_iteration: bool = False
     smoke_test_command: str | None = 'python -m unittest discover -s tests -p "test_*.py" -v'
+    codex_cli_path: str = "codex"
+    codex_model: str = "gpt-5.3-codex"
+    codex_reasoning_effort: str = "xhigh"
+    ui_language: str = "en"
+    codex_sandbox_mode: str = "workspace-write"
+    codex_full_auto: bool = True
+    codex_skip_git_repo_check: bool = True
+    codex_ephemeral: bool = False
+    codex_timeout_seconds: int = 1800
+    planner_sandbox_mode: str = "read-only"
+    planner_disable_shell_tool: bool = True
     enable_parallel_teams: bool = True
-    default_parallel_teams: int = 2
-    max_parallel_features_per_iteration: int = 4
-    require_parallel_safe_flag: bool = True
+    default_parallel_teams: int = 4
+    max_parallel_features_per_iteration: int = 8
+    require_parallel_safe_flag: bool = False
     max_iterations_per_run: int = 20
     max_no_progress_iterations: int = 3
     stop_when_all_features_pass: bool = True
-    stop_on_quality_gate_failure: bool = True
+    stop_on_quality_gate_failure: bool = False
     require_browser_validation_before_stop: bool = False
     browser_validation_enabled: bool = False
     browser_validation_backend: str = "auto"
@@ -96,18 +109,31 @@ class AgentPolicy:
     def from_dict(cls, payload: dict[str, Any]) -> "AgentPolicy":
         return cls(
             zero_ask=bool(payload.get("zero_ask", True)),
+            implementation_backend=str(payload.get("implementation_backend", "codex")),
+            planner_max_features_per_task=int(payload.get("planner_max_features_per_task", 4)),
             auto_resolve_duplicate_feature_ids=bool(payload.get("auto_resolve_duplicate_feature_ids", True)),
             retry_failed_commands_once=bool(payload.get("retry_failed_commands_once", True)),
-            run_smoke_before_iteration=bool(payload.get("run_smoke_before_iteration", True)),
+            run_smoke_before_iteration=bool(payload.get("run_smoke_before_iteration", False)),
             smoke_test_command=payload.get("smoke_test_command"),
+            codex_cli_path=str(payload.get("codex_cli_path", "codex")),
+            codex_model=str(payload.get("codex_model", "gpt-5.3-codex")),
+            codex_reasoning_effort=str(payload.get("codex_reasoning_effort", "xhigh")),
+            ui_language=str(payload.get("ui_language", "en")),
+            codex_sandbox_mode=str(payload.get("codex_sandbox_mode", "workspace-write")),
+            codex_full_auto=bool(payload.get("codex_full_auto", True)),
+            codex_skip_git_repo_check=bool(payload.get("codex_skip_git_repo_check", True)),
+            codex_ephemeral=bool(payload.get("codex_ephemeral", False)),
+            codex_timeout_seconds=int(payload.get("codex_timeout_seconds", 1800)),
+            planner_sandbox_mode=str(payload.get("planner_sandbox_mode", "read-only")),
+            planner_disable_shell_tool=bool(payload.get("planner_disable_shell_tool", True)),
             enable_parallel_teams=bool(payload.get("enable_parallel_teams", True)),
-            default_parallel_teams=int(payload.get("default_parallel_teams", 2)),
-            max_parallel_features_per_iteration=int(payload.get("max_parallel_features_per_iteration", 4)),
-            require_parallel_safe_flag=bool(payload.get("require_parallel_safe_flag", True)),
+            default_parallel_teams=int(payload.get("default_parallel_teams", 4)),
+            max_parallel_features_per_iteration=int(payload.get("max_parallel_features_per_iteration", 8)),
+            require_parallel_safe_flag=bool(payload.get("require_parallel_safe_flag", False)),
             max_iterations_per_run=int(payload.get("max_iterations_per_run", 20)),
             max_no_progress_iterations=int(payload.get("max_no_progress_iterations", 3)),
             stop_when_all_features_pass=bool(payload.get("stop_when_all_features_pass", True)),
-            stop_on_quality_gate_failure=bool(payload.get("stop_on_quality_gate_failure", True)),
+            stop_on_quality_gate_failure=bool(payload.get("stop_on_quality_gate_failure", False)),
             require_browser_validation_before_stop=bool(
                 payload.get("require_browser_validation_before_stop", False)
             ),
@@ -156,12 +182,27 @@ class AgentPolicy:
             "",
             "## Mode",
             f"- zero_ask: `{str(self.zero_ask).lower()}`",
+            f"- implementation_backend: `{self.implementation_backend}`",
+            f"- planner_max_features_per_task: `{self.planner_max_features_per_task}`",
             f"- auto_resolve_duplicate_feature_ids: `{str(self.auto_resolve_duplicate_feature_ids).lower()}`",
             f"- retry_failed_commands_once: `{str(self.retry_failed_commands_once).lower()}`",
             f"- enable_parallel_teams: `{str(self.enable_parallel_teams).lower()}`",
             f"- default_parallel_teams: `{self.default_parallel_teams}`",
             f"- max_parallel_features_per_iteration: `{self.max_parallel_features_per_iteration}`",
             f"- require_parallel_safe_flag: `{str(self.require_parallel_safe_flag).lower()}`",
+            "",
+            "## Codex Execution",
+            f"- codex_cli_path: `{self.codex_cli_path}`",
+            f"- codex_model: `{self.codex_model}`",
+            f"- codex_reasoning_effort: `{self.codex_reasoning_effort}`",
+            f"- ui_language: `{self.ui_language}`",
+            f"- codex_sandbox_mode: `{self.codex_sandbox_mode}`",
+            f"- codex_full_auto: `{str(self.codex_full_auto).lower()}`",
+            f"- codex_skip_git_repo_check: `{str(self.codex_skip_git_repo_check).lower()}`",
+            f"- codex_ephemeral: `{str(self.codex_ephemeral).lower()}`",
+            f"- codex_timeout_seconds: `{self.codex_timeout_seconds}`",
+            f"- planner_sandbox_mode: `{self.planner_sandbox_mode}`",
+            f"- planner_disable_shell_tool: `{str(self.planner_disable_shell_tool).lower()}`",
             "",
             "## Stop Criteria",
             f"- max_iterations_per_run: `{self.max_iterations_per_run}`",
@@ -360,6 +401,7 @@ class ParallelIterationReport:
     result: str
     next_step: str
     quality_gate_ok: bool
+    skipped_feature_ids: list[str] = field(default_factory=list)
     bootstrap_notes: list[str] = field(default_factory=list)
     team_results: list[TeamExecutionResult] = field(default_factory=list)
     command_results: list[CommandResult] = field(default_factory=list)

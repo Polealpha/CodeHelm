@@ -49,6 +49,8 @@ class _ControlHandler(BaseHTTPRequestHandler):
             "/run-project",
             "/browser-validate",
             "/osworld-run",
+            "/plan-task",
+            "/set-model",
         }:
             self._send_json(404, {"error": "not found"})
             return
@@ -66,6 +68,39 @@ class _ControlHandler(BaseHTTPRequestHandler):
                 dry_run=bool(payload.get("dry_run", False)),
             )
             self._send_json(200, report.to_dict())
+            return
+
+        if path == "/plan-task":
+            report = self.engine.plan_task(
+                task_id=str(payload.get("task_id", "")),
+                description=str(payload.get("description", "")),
+                max_features=payload.get("max_features"),
+                category=str(payload.get("category", "functional")),
+                parallel_safe=bool(payload.get("parallel_safe", False)),
+                dry_run=bool(payload.get("dry_run", False)),
+                model=payload.get("model"),
+                reasoning_effort=payload.get("reasoning_effort"),
+            )
+            self._send_json(200 if bool(report.get("success")) else 409, report)
+            return
+
+        if path == "/set-model":
+            policy = self.engine.set_model_settings(
+                cli_path=payload.get("cli_path"),
+                implementation_backend=payload.get("implementation_backend"),
+                model=payload.get("model"),
+                reasoning_effort=payload.get("reasoning_effort"),
+                ui_language=payload.get("ui_language"),
+                sandbox_mode=payload.get("sandbox"),
+                full_auto=payload.get("full_auto"),
+                skip_git_repo_check=payload.get("skip_git_repo_check"),
+                ephemeral=payload.get("ephemeral"),
+                timeout_seconds=payload.get("timeout_seconds"),
+                planner_sandbox_mode=payload.get("planner_sandbox"),
+                planner_disable_shell_tool=payload.get("planner_disable_shell_tool"),
+                planner_max_features_per_task=payload.get("planner_max_features"),
+            )
+            self._send_json(200, policy.to_dict())
             return
 
         if path == "/iterate-parallel":

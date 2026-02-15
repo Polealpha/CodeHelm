@@ -89,5 +89,61 @@
     "description": "OSWorld-style action runner supports playwright/desktop/http backends",
     "priority": 13,
     "passes": true
+  },
+  {
+    "id": "F-014",
+    "category": "ops",
+    "description": "Add dependency doctor for browser and OSWorld runtimes with actionable remediation hints",
+    "priority": 14,
+    "passes": false,
+    "parallel_safe": false,
+    "implementation_commands": [
+      "Add a doctor CLI command that reports codex CLI, playwright package, and playwright browser-binary readiness in JSON and text formats.",
+      "Refactor runtime dependency checks into reusable helpers so browser validation and osworld execution share the same diagnostics.",
+      "Return structured remediation hints (for example install commands and missing-component names) instead of raw stack traces on dependency failures."
+    ],
+    "verification_command": "python -m unittest discover -s tests -p \"test_*.py\" -v"
+  },
+  {
+    "id": "F-015",
+    "category": "policy",
+    "description": "Add a dedicated CLI command to tune loop stop and auto-handoff thresholds",
+    "priority": 15,
+    "passes": false,
+    "parallel_safe": false,
+    "implementation_commands": [
+      "Implement a set-policy command to update stop and handoff fields (max iterations, no-progress threshold, handoff thresholds, browser-stop requirement) without editing files manually.",
+      "Persist changes consistently to .caasys/policy.json and AGENT_POLICY.md and reload policy in the same process.",
+      "Add input validation and clear error messages for invalid threshold values and unsupported enum options."
+    ],
+    "verification_command": "python -m unittest discover -s tests -p \"test_*.py\" -v"
+  },
+  {
+    "id": "F-016",
+    "category": "loop",
+    "description": "Persist browser stop-check evidence artifacts and expose artifact paths in loop/status outputs",
+    "priority": 16,
+    "passes": false,
+    "parallel_safe": false,
+    "implementation_commands": [
+      "When run-project performs browser validation at stop time, write a timestamped JSON artifact under .caasys/validation_reports/ with request, backend, result, and failure metadata.",
+      "Expose artifact path(s) in loop report payloads, AGENT_STATUS next-step context, and server API responses.",
+      "Add bounded retention (for example keep latest N artifacts) to avoid unbounded growth in long-running projects."
+    ],
+    "verification_command": "python -m unittest discover -s tests -p \"test_*.py\" -v"
+  },
+  {
+    "id": "F-017",
+    "category": "security",
+    "description": "Require explicit desktop-control acknowledgement token and log OSWorld desktop actions",
+    "priority": 17,
+    "passes": false,
+    "parallel_safe": false,
+    "implementation_commands": [
+      "Require both --enable-desktop-control and a deliberate acknowledgement token (for example CAASYS_DESKTOP_ACK) before desktop backend execution.",
+      "Write append-only audit entries for each desktop action (timestamp, action type, target, success/failure) to .caasys/osworld_artifacts/audit.log.",
+      "Return explicit policy-guided error output when desktop control is requested without required acknowledgements."
+    ],
+    "verification_command": "python -m unittest discover -s tests -p \"test_*.py\" -v"
   }
 ]

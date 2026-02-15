@@ -5,10 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "caasys"
 version = "0.1.0"
-description = "Continuous autonomous engineering system with iterative agent loop"
+description = "CodeHelm - an autonomous engine that steers software projects from idea to shipment"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Codex Agent"}]
+license = {text = "MIT"}
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/Polealpha/CodeHelm"
+Issues = "https://github.com/Polealpha/CodeHelm/issues"
 
 [project.optional-dependencies]
 browser = ["playwright>=1.49.0"]
@@ -16,6 +30,7 @@ osworld = ["playwright>=1.49.0", "pyautogui>=0.9.54"]
 
 [project.scripts]
 caasys = "caasys.cli:main"
+codehelm = "caasys.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

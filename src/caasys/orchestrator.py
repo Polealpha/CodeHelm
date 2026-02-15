@@ -11,15 +11,28 @@ class Orchestrator:
     def __init__(self, policy: AgentPolicy | None = None) -> None:
         self.policy = policy or AgentPolicy()
 
-    def pick_next_feature(self, features: list[Feature]) -> Feature | None:
-        pending = [feature for feature in features if not feature.passes]
+    def pick_next_feature(
+        self,
+        features: list[Feature],
+        *,
+        exclude_feature_ids: set[str] | None = None,
+    ) -> Feature | None:
+        excluded = exclude_feature_ids or set()
+        pending = [feature for feature in features if not feature.passes and feature.id not in excluded]
         if not pending:
             return None
         pending.sort(key=lambda feature: (feature.priority, feature.id))
         return pending[0]
 
-    def pick_next_features(self, features: list[Feature], count: int) -> list[Feature]:
-        pending = [feature for feature in features if not feature.passes]
+    def pick_next_features(
+        self,
+        features: list[Feature],
+        count: int,
+        *,
+        exclude_feature_ids: set[str] | None = None,
+    ) -> list[Feature]:
+        excluded = exclude_feature_ids or set()
+        pending = [feature for feature in features if not feature.passes and feature.id not in excluded]
         pending.sort(key=lambda feature: (feature.priority, feature.id))
         return pending[:count]
 
