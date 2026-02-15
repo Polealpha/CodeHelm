@@ -22,10 +22,19 @@ Core loop:
 
 ## 2. Install and Start
 
-Install (recommended):
+Recommended setup (Windows PowerShell):
 
 ```powershell
-pip install -e .
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip setuptools wheel
+python -m pip install -e .
+```
+
+Quick check:
+
+```powershell
+codehelm --help
 ```
 
 Start interactive UI:
@@ -294,10 +303,19 @@ CodeHelm 是一个本地优先（local-first）的持续构建系统。你输入
 
 ## 2. 安装与启动
 
-推荐安装：
+推荐方式（Windows PowerShell）：
 
 ```powershell
-pip install -e .
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip setuptools wheel
+python -m pip install -e .
+```
+
+快速检查：
+
+```powershell
+codehelm --help
 ```
 
 启动交互界面：
